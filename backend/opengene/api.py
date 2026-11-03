@@ -8,6 +8,7 @@ string edits from outside the engine.
 from __future__ import annotations
 
 from dataclasses import asdict
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -126,7 +127,9 @@ def create_record(req: CreateRequest) -> dict:
 
 @app.get("/records")
 def list_records() -> list[dict]:
-    return [r.model_dump_api() for r in store.list()]
+    """Saved records, most recently edited first, without their sequences."""
+    records = sorted(store.list(), key=lambda r: r.updated_at, reverse=True)
+    return [r.summary_api() for r in records]
 
 
 @app.get("/records/{record_id}")
@@ -165,11 +168,19 @@ def export_record(record_id: str, fmt: str = "genbank") -> PlainTextResponse:
         body = io_files.export_string(record, fmt)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    safe = "".join(c for c in record.name if c.isalnum() or c in "-_.") or "plasmid"
     return PlainTextResponse(
-        body,
-        headers={"Content-Disposition": f'attachment; filename="{safe}.{ext}"'},
+        body, headers={"Content-Disposition": _attachment(record.name, ext)}
     )
+
+
+def _attachment(name: str, ext: str) -> str:
+    """Content-Disposition for a download. HTTP headers are Latin-1, so a name
+    like "ΔGFP" gets an ASCII fallback plus the RFC 5987 UTF-8 form, which
+    browsers and Electron prefer when present."""
+    ascii_name = "".join(c for c in name if c.isascii() and (c.isalnum() or c in "-_."))
+    fallback = f"{ascii_name or 'plasmid'}.{ext}"
+    encoded = quote(f"{name}.{ext}", safe="")
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
 
 
 # --------------------------------------------------------------------------

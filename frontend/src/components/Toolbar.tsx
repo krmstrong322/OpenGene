@@ -7,9 +7,10 @@ interface Props {
   record: PlasmidRecord | null;
   onRecordChange: (r: PlasmidRecord) => void;
   onError: (msg: string) => void;
+  onShowLibrary: () => void;
 }
 
-export function Toolbar({ record, onRecordChange, onError }: Props) {
+export function Toolbar({ record, onRecordChange, onError, onShowLibrary }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("new_construct");
@@ -40,6 +41,7 @@ export function Toolbar({ record, onRecordChange, onError }: Props) {
         <img src={logoUrl} alt="" width={22} height={22} />
         OpenGene
       </strong>
+      {record && <button onClick={onShowLibrary}>Plasmids</button>}
       <button onClick={() => setShowNew((v) => !v)}>New</button>
       <button onClick={() => fileRef.current?.click()}>Import…</button>
       <input

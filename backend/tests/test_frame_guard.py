@@ -184,3 +184,108 @@ def test_api_returns_409_and_leaves_record_unchanged():
     )
     assert res.status_code == 422  # invalid policy value
     store.clear()
+
+
+# -- regressions from the PR #1 review -------------------------------------
+
+def test_insert_at_cds_start_lands_before_it():
+    # Review #1: an insert at the CDS start used to be absorbed into it.
+    r = rec()
+    S.insert(r, 10, "A")
+    cds = r.features[0]
+    assert (cds.start, cds.end) == (11, 47)
+    assert cds.end - cds.start == 36
+
+
+def test_insert_at_cds_end_lands_after_it():
+    r = rec()
+    S.insert(r, 46, "A")
+    assert (r.features[0].start, r.features[0].end) == (10, 46)
+
+
+def test_replace_overhanging_cds_end_judged_by_the_cds():
+    # Review #2: replacing [44,49) (2 CDS bases + 3 after it) used to leave a
+    # 34 bp CDS with no warning. The new bases now join the CDS: 39 bp.
+    r = rec()
+    S.replace_range(r, 44, 49, "GGGGG")
+    cds = r.features[0]
+    assert (cds.start, cds.end) == (10, 49)
+    # ...and a replacement that leaves it off-frame is rejected.
+    r = rec()
+    with pytest.raises(S.FrameShiftError, match=r"geneX by \+2 bp"):
+        S.replace_range(r, 44, 49, "GGGG")
+
+
+def test_pad_refused_when_cds_need_different_amounts():
+    feats = [
+        Feature(name="geneA", type=FeatureType.cds, start=10, end=46),
+        Feature(name="geneB", type=FeatureType.cds, start=40, end=52),
+    ]
+    r = rec(features=feats)
+    # geneA loses its last base (needs +1); geneB loses 2 (needs +2).
+    with pytest.raises(S.FrameShiftError, match="different amounts"):
+        S.replace_range(r, 44, 47, "G", frame_policy="pad")
+    assert r.sequence == SEQ
+
+
+def test_fully_deleted_feature_is_removed_not_left_empty():
+    r = rec()
+    S.delete(r, 5, 50)
+    assert r.features == []
+    assert "removed geneX" in r.history[-1].warnings[0]
+
+
+# -- property test: the guard agrees with the real edit --------------------
+
+def _check_coords(r):
+    n = r.length
+    for f in r.features:
+        assert 0 <= f.start <= n and 0 <= f.end <= n, (f, n)
+        assert f.length(n) <= n
+
+
+def test_random_edits_never_slip_a_frameshift_past_the_guard():
+    import random
+
+    rng = random.Random(20261103)
+    for _ in range(3000):
+        n = rng.randint(30, 90)
+        circular = rng.random() < 0.6
+        seq = "".join(rng.choice("ACGT") for _ in range(n))
+        feats = []
+        for i in range(rng.randint(1, 3)):
+            start = rng.randrange(n)
+            span = 3 * rng.randint(2, max(2, n // 3 - 1))
+            end = start + span
+            if end > n:
+                if not circular:
+                    continue
+                end -= n  # wraps the origin
+            feats.append(Feature(name=f"cds{i}", type=FeatureType.cds, start=start, end=end))
+        r = PlasmidRecord(name="p", sequence=seq, is_circular=circular, features=feats)
+        before = {f.id: f.length(n) for f in r.features}
+
+        op = rng.choice(["insert", "delete", "replace"])
+        a = rng.randrange(n)
+        b = rng.randrange(n + 1) if circular else rng.randint(a, n)
+        new = "".join(rng.choice("ACGT") for _ in range(rng.randint(1, 7)))
+        try:
+            if op == "insert":
+                S.insert(r, a, new)
+            elif op == "delete":
+                if a == b:
+                    continue
+                S.delete(r, a, b)
+            else:
+                if a == b:
+                    continue
+                S.replace_range(r, a, b, new)
+        except S.FrameShiftError:
+            continue
+        except S.SequenceError:
+            continue
+
+        _check_coords(r)
+        for f in r.features:
+            change = f.length(r.length) - before[f.id]
+            assert change % 3 == 0, (op, a, b, len(new), f, before[f.id], n, circular)

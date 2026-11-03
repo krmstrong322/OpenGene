@@ -129,3 +129,31 @@ def test_feature_crud(client):
 def test_404_on_missing_record(client):
     r = client.get("/records/doesnotexist")
     assert r.status_code == 404
+
+
+def test_export_unicode_name(client):
+    # PR #1 review: a non-Latin-1 name used to crash the export with HTTP 500.
+    rec = client.post("/records", json={"name": "ΔGFP/v2", "sequence": "ATGC"}).json()
+    r = client.get(f"/records/{rec['id']}/export?fmt=fasta")
+    assert r.status_code == 200
+    cd = r.headers["content-disposition"]
+    assert 'filename="GFPv2.fasta"' in cd
+    assert "filename*=UTF-8''%CE%94GFP%2Fv2.fasta" in cd
+
+
+def test_export_ascii_name_unchanged(client):
+    rec = client.post("/records", json={"name": "pUC19", "sequence": "ATGC"}).json()
+    cd = client.get(f"/records/{rec['id']}/export?fmt=genbank").headers["content-disposition"]
+    assert 'filename="pUC19.gb"' in cd
+
+
+def test_list_records_is_a_light_summary_newest_first(client):
+    a = _create(client, seq="ATGCATGC")
+    b = _create(client, seq="GGGGCCCC")
+    client.post(f"/records/{a['id']}/insert", json={"position": 0, "sequence": "AAA"})
+    rows = client.get("/records").json()
+    assert [r["id"] for r in rows] == [a["id"], b["id"]]  # a was edited last
+    assert set(rows[0]) == {
+        "id", "name", "length", "isCircular", "featureCount", "createdAt", "updatedAt"
+    }
+    assert rows[0]["length"] == 11

@@ -8,6 +8,7 @@ wrap past the origin, in which case ``start > end``.
 
 from __future__ import annotations
 
+import time
 import uuid
 from enum import Enum
 from typing import Literal, Optional
@@ -88,8 +89,26 @@ class PlasmidRecord(BaseModel):
     features: list[Feature] = Field(default_factory=list)
     primers: list[Primer] = Field(default_factory=list)
     history: list[HistoryEvent] = Field(default_factory=list)
+    created_at: float = Field(default_factory=time.time, alias="createdAt")
 
     model_config = {"populate_by_name": True}
+
+    @property
+    def updated_at(self) -> float:
+        """Time of the last edit, or creation if it was never edited."""
+        return self.history[-1].timestamp if self.history else self.created_at
+
+    def summary_api(self) -> dict:
+        """Lightweight listing entry (no sequence) for the plasmid library."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "length": self.length,
+            "isCircular": self.is_circular,
+            "featureCount": len(self.features),
+            "createdAt": self.created_at,
+            "updatedAt": self.updated_at,
+        }
 
     @field_validator("sequence")
     @classmethod

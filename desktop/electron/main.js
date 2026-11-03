@@ -16,6 +16,7 @@ const path = require("path");
 
 let backendProcess = null;
 let backendPort = 0;
+let backendReady = false; // set once /health answers; gates window creation
 
 function resourcePath(...parts) {
   // Packaged: files live under resources/. Dev: alongside the electron/ dir.
@@ -74,6 +75,10 @@ function waitForHealth(port, timeoutMs = 30000) {
   });
 }
 
+// Starts the backend. The returned promise never resolves; it rejects if the
+// backend can't be launched (spawn reports that asynchronously through the
+// "error" event, not as a thrown exception) or exits before it is ready, so
+// boot() can race it against the health check.
 function startBackend(port) {
   const exe = backendExecutable();
   backendProcess = spawn(exe, ["--port", String(port)], {
@@ -82,10 +87,21 @@ function startBackend(port) {
   });
   backendProcess.stdout.on("data", (d) => process.stdout.write(`[backend] ${d}`));
   backendProcess.stderr.on("data", (d) => process.stderr.write(`[backend] ${d}`));
-  backendProcess.on("exit", (code) => {
-    if (code && code !== 0 && !app.isQuitting) {
-      dialog.showErrorBox("OpenGene", `The backend stopped unexpectedly (code ${code}).`);
-    }
+  return new Promise((_, reject) => {
+    backendProcess.on("error", (err) => {
+      reject(new Error(`Could not start the backend (${exe}): ${err.message}`));
+    });
+    backendProcess.on("exit", (code, signal) => {
+      const how = code !== null ? `code ${code}` : `signal ${signal}`;
+      if (!backendReady) {
+        reject(new Error(`The backend exited during startup (${how}).`));
+      } else if (!app.isQuitting) {
+        dialog.showErrorBox(
+          "OpenGene",
+          `The backend stopped unexpectedly (${how}). Please restart OpenGene.`,
+        );
+      }
+    });
   });
 }
 
@@ -129,11 +145,16 @@ function createWindow() {
 async function boot() {
   try {
     backendPort = await findFreePort();
-    startBackend(backendPort);
-    await waitForHealth(backendPort);
+    const backendFailed = startBackend(backendPort);
+    await Promise.race([waitForHealth(backendPort), backendFailed]);
+    backendReady = true;
     createWindow();
   } catch (err) {
-    dialog.showErrorBox("OpenGene failed to start", String(err && err.message ? err.message : err));
+    const message = String(err && err.message ? err.message : err);
+    console.error(`OpenGene failed to start: ${message}`);
+    app.isQuitting = true; // no second "stopped unexpectedly" dialog
+    stopBackend();
+    dialog.showErrorBox("OpenGene failed to start", message);
     app.quit();
   }
 }
@@ -141,7 +162,10 @@ async function boot() {
 app.whenReady().then(boot);
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  // macOS dock click. boot() opens the first window once the backend is
+  // healthy; before that, opening one here would point at a backend that
+  // isn't listening yet (and boot() would then open a second window).
+  if (backendReady && BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
 app.on("window-all-closed", () => {

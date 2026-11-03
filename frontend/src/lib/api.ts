@@ -6,6 +6,7 @@ import type {
   PlasmidRecord,
   Primer,
   PrimerAnalysis,
+  RecordSummary,
 } from "./types";
 
 // In the browser / dev server the Vite proxy serves the API under /api.
@@ -49,7 +50,7 @@ export const api = {
       body: JSON.stringify({ name, sequence, isCircular }),
     }),
 
-  listRecords: () => req<PlasmidRecord[]>("/records"),
+  listRecords: () => req<RecordSummary[]>("/records"),
   getRecord: (id: string) => req<PlasmidRecord>(`/records/${id}`),
   deleteRecord: (id: string) =>
     req<{ deleted: string }>(`/records/${id}`, { method: "DELETE" }),

@@ -43,3 +43,17 @@ def test_in_memory_store_has_no_file(tmp_path, monkeypatch):
     # no file side effects to assert; just ensure clear works
     store.clear()
     assert store.list() == []
+
+
+def test_old_rows_without_created_at_still_load(tmp_path):
+    # Rows saved before createdAt existed must still open.
+    import sqlite3, json
+    path = f"{tmp_path}/opengene.sqlite3"
+    SessionStore(db_path=path)  # creates the table
+    row = {"id": "legacy1", "name": "old", "isCircular": True, "sequence": "ACGT",
+           "features": [], "primers": [], "history": []}
+    con = sqlite3.connect(path)
+    con.execute("INSERT INTO records VALUES (?,?,?,?)", ("legacy1", "old", json.dumps(row), 0.0))
+    con.commit(); con.close()
+    loaded = SessionStore(db_path=path).get("legacy1")
+    assert loaded.sequence == "ACGT" and loaded.created_at > 0

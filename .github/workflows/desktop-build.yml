@@ -68,13 +68,40 @@ jobs:
       # --- desktop: Electron installer -----------------------------------
       - name: Build desktop installer
         working-directory: desktop
+        shell: bash
         env:
-          # Leave signing off until secrets are configured. electron-builder
-          # reads CSC_LINK / CSC_KEY_PASSWORD (and Apple notarize vars) from the
-          # environment; absent, it builds unsigned.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signing secrets (see desktop/README.md). GitHub doesn't export
+          # secrets by itself, and an unset secret arrives as an empty string,
+          # which electron-builder would try to use as a certificate and fail.
+          # So they come in under SECRET_* names and are exported below only
+          # when they have a value; with none set, the build stays unsigned.
+          SECRET_MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          SECRET_MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SECRET_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SECRET_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          SECRET_WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
+          # Each platform gets only its own certificate. (Runs under bash -e,
+          # so use if-blocks: a bare `[ -n ... ] && export` would end the step.)
+          export_if_set() {
+            if [ -n "$2" ]; then
+              export "$1=$2"
+              echo "signing: $1 is set"
+            fi
+          }
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            export_if_set CSC_LINK "$SECRET_MAC_CSC_LINK"
+            export_if_set CSC_KEY_PASSWORD "$SECRET_MAC_CSC_KEY_PASSWORD"
+            export_if_set APPLE_ID "$SECRET_APPLE_ID"
+            export_if_set APPLE_APP_SPECIFIC_PASSWORD "$SECRET_APPLE_APP_SPECIFIC_PASSWORD"
+            export_if_set APPLE_TEAM_ID "$SECRET_APPLE_TEAM_ID"
+          else
+            export_if_set WIN_CSC_LINK "$SECRET_WIN_CSC_LINK"
+            export_if_set WIN_CSC_KEY_PASSWORD "$SECRET_WIN_CSC_KEY_PASSWORD"
+          fi
           npm ci
           npm run dist -- ${{ matrix.builder_flag }}
 

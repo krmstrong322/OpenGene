@@ -331,3 +331,112 @@ h4 {
 .notice p + p {
   margin-top: 4px;
 }
+
+/* Plasmid library (start screen) */
+.library {
+  width: 100%;
+  max-width: 720px;
+  margin: 40px auto;
+  padding: 0 16px;
+}
+.library-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.library-head h2 {
+  margin: 0;
+}
+.library .primary {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.library-empty {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+.library-empty p {
+  margin: 0 0 6px;
+}
+.library-list {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+.library-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.library-list li:last-child {
+  border-bottom: none;
+}
+.library-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  font: inherit;
+  border: none;
+  background: none;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+}
+.library-open:hover,
+.library-open:focus-visible {
+  background: #eef3fb;
+}
+.library-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.library-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.library-confirm button {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  cursor: pointer;
+}
+.library-confirm .danger {
+  border-color: #e57373;
+  color: #c62828;
+}
+.library .x {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.library .x:hover {
+  color: #c62828;
+}

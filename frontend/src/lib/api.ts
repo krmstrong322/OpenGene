@@ -1,6 +1,7 @@
 import type {
   CutSite,
   Feature,
+  FramePolicy,
   ORF,
   PlasmidRecord,
   Primer,
@@ -69,16 +70,16 @@ export const api = {
 
   exportUrl: (id: string, fmt: string) => `${BASE}/records/${id}/export?fmt=${fmt}`,
 
-  insert: (id: string, position: number, sequence: string) =>
+  insert: (id: string, position: number, sequence: string, framePolicy: FramePolicy = "reject") =>
     req<PlasmidRecord>(`/records/${id}/insert`, {
       method: "POST",
-      body: JSON.stringify({ position, sequence }),
+      body: JSON.stringify({ position, sequence, frame_policy: framePolicy }),
     }),
 
-  del: (id: string, start: number, end: number) =>
+  del: (id: string, start: number, end: number, framePolicy: FramePolicy = "reject") =>
     req<PlasmidRecord>(`/records/${id}/delete`, {
       method: "POST",
-      body: JSON.stringify({ start, end }),
+      body: JSON.stringify({ start, end, frame_policy: framePolicy }),
     }),
 
   mutate: (id: string, position: number, base: string) =>
@@ -87,10 +88,16 @@ export const api = {
       body: JSON.stringify({ position, base }),
     }),
 
-  replace: (id: string, start: number, end: number, sequence: string) =>
+  replace: (
+    id: string,
+    start: number,
+    end: number,
+    sequence: string,
+    framePolicy: FramePolicy = "reject",
+  ) =>
     req<PlasmidRecord>(`/records/${id}/replace`, {
       method: "POST",
-      body: JSON.stringify({ start, end, sequence }),
+      body: JSON.stringify({ start, end, sequence, frame_policy: framePolicy }),
     }),
 
   reverseComplement: (id: string) =>

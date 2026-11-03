@@ -20,11 +20,18 @@ jobs:
       matrix:
         include:
           - name: macOS (Apple Silicon)
-            os: macos-14
-            builder_flag: "--mac"
+            os: macos-15
+            builder_flag: "--mac --arm64"
+          # Intel Macs. macos-13 was retired in Dec 2025; macos-15-intel is
+          # GitHub's Intel image until the macOS 15 image retires (fall 2027).
+          # PyInstaller can't cross-compile, so the x64 backend has to be built
+          # on an Intel runner.
+          - name: macOS (Intel)
+            os: macos-15-intel
+            builder_flag: "--mac --x64"
           - name: Windows (x64)
             os: windows-latest
-            builder_flag: "--win"
+            builder_flag: "--win --x64"
 
     steps:
       - uses: actions/checkout@v4

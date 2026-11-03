@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { PlasmidRecord } from "../lib/types";
+import logoUrl from "../assets/logo.svg";
 
 interface Props {
   record: PlasmidRecord | null;
@@ -35,7 +36,10 @@ export function Toolbar({ record, onRecordChange, onError }: Props) {
 
   return (
     <div className="toolbar">
-      <strong className="brand">🧬 OpenGene</strong>
+      <strong className="brand">
+        <img src={logoUrl} alt="" width={22} height={22} />
+        OpenGene
+      </strong>
       <button onClick={() => setShowNew((v) => !v)}>New</button>
       <button onClick={() => fileRef.current?.click()}>Import…</button>
       <input

@@ -25,11 +25,13 @@ extraResources:
 #   1. set env CSC_LINK (base64 .p12) and CSC_KEY_PASSWORD in CI secrets
 #   2. set `identity` to your "Developer ID Application: …" name (remove null)
 #   3. set notarize: true and provide APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
-#      APPLE_TEAM_ID (electron-builder reads these from the environment)
+#      APPLE_TEAM_ID (electron-builder reads these from the environment);
+#      `notarize` lives under `mac:`
 # The entitlements file below is required once hardenedRuntime is on, because
 # the bundled Python needs unsigned-memory / library-validation exceptions.
 # ---------------------------------------------------------------------------
 mac:
+  icon: build/icon.icns
   category: public.app-category.education
   target:
     - dmg
@@ -38,10 +40,12 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-notarize: false
+  notarize: false
 
 dmg:
   title: OpenGene ${version}
+  # OpenGene-0.1.0-arm64.dmg (Apple Silicon) / OpenGene-0.1.0-x64.dmg (Intel)
+  artifactName: ${productName}-${version}-${arch}.${ext}
 
 # ---------------------------------------------------------------------------
 # Windows — unsigned for now. To enable signing later, set CSC_LINK /
@@ -49,6 +53,7 @@ dmg:
 # electron-builder picks them up automatically with no config change here.
 # ---------------------------------------------------------------------------
 win:
+  icon: build/icon.ico
   target:
     - nsis
 
@@ -61,6 +66,7 @@ nsis:
 
 # Linux build is handy for local testing / Linux labs.
 linux:
+  icon: build/icon.png
   target:
     - AppImage
   category: Education

@@ -33,12 +33,16 @@ and GitHub Actions builds both:
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
 # → Actions → "Build desktop installers" → download artifacts:
-#     OpenGene-0.1.0.dmg      (macOS, Apple Silicon)
-#     OpenGene Setup 0.1.0.exe (Windows x64)
+#     OpenGene-0.1.0-arm64.dmg  (macOS, Apple Silicon — M1 and later)
+#     OpenGene-0.1.0-x64.dmg    (macOS, Intel)
+#     OpenGene Setup 0.1.0.exe  (Windows x64)
 ```
 
-The workflow is `.github/workflows/desktop-build.yml`. To also build Intel Macs,
-add a `macos-13` entry to its matrix.
+The workflow is `.github/workflows/desktop-build.yml`. Each macOS architecture
+is built on its own runner (`macos-15` for Apple Silicon, `macos-15-intel` for
+Intel) because PyInstaller cannot cross-compile the bundled Python backend.
+GitHub plans to retire its Intel macOS images with the macOS 15 image in fall
+2027; after that, Intel builds need a self-hosted Intel Mac runner.
 
 ## Building locally (for development)
 
@@ -76,7 +80,7 @@ needed beyond flipping the two noted values:
 1. Enroll in the Apple Developer Program.
 2. CI secrets: `CSC_LINK` (base64 of your Developer ID `.p12`), `CSC_KEY_PASSWORD`.
 3. For notarization: `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`,
-   and set `notarize: true`.
+   and set `mac.notarize: true`.
 4. Set `identity` to your `Developer ID Application: …` name (remove `null`) and
    `hardenedRuntime: true` (the entitlements in `build/entitlements.mac.plist`
    are already wired for the bundled Python).

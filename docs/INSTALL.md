@@ -10,7 +10,10 @@ you close the app.
 
 ## macOS
 
-1. Download **`OpenGene-x.y.z.dmg`**.
+1. Download the right file for your Mac. Not sure which? Click the Apple menu
+   (the Apple logo, top-left of the screen) → **About This Mac**:
+   - **Chip: Apple M1 / M2 / M3…** → download **`OpenGene-x.y.z-arm64.dmg`**
+   - **Processor: Intel…** → download **`OpenGene-x.y.z-x64.dmg`**
 2. Double-click it, then drag **OpenGene** into your **Applications** folder.
 3. Open **Applications** and double-click **OpenGene**.
 

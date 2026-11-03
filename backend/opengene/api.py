@@ -47,11 +47,13 @@ class CreateRequest(BaseModel):
 class InsertRequest(BaseModel):
     position: int
     sequence: str
+    frame_policy: seq_mod.FramePolicy = "reject"
 
 
 class DeleteRequest(BaseModel):
     start: int
     end: int
+    frame_policy: seq_mod.FramePolicy = "reject"
 
 
 class MutateRequest(BaseModel):
@@ -63,6 +65,7 @@ class ReplaceRequest(BaseModel):
     start: int
     end: int
     sequence: str
+    frame_policy: seq_mod.FramePolicy = "reject"
 
 
 class DigestRequest(BaseModel):
@@ -177,7 +180,9 @@ def export_record(record_id: str, fmt: str = "genbank") -> PlainTextResponse:
 def insert(record_id: str, req: InsertRequest) -> dict:
     record = _get(record_id)
     try:
-        seq_mod.insert(record, req.position, req.sequence)
+        seq_mod.insert(record, req.position, req.sequence, req.frame_policy)
+    except seq_mod.FrameShiftError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except seq_mod.SequenceError as e:
         raise HTTPException(status_code=422, detail=str(e))
     store.save(record)
@@ -188,7 +193,9 @@ def insert(record_id: str, req: InsertRequest) -> dict:
 def delete(record_id: str, req: DeleteRequest) -> dict:
     record = _get(record_id)
     try:
-        seq_mod.delete(record, req.start, req.end)
+        seq_mod.delete(record, req.start, req.end, req.frame_policy)
+    except seq_mod.FrameShiftError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except seq_mod.SequenceError as e:
         raise HTTPException(status_code=422, detail=str(e))
     store.save(record)
@@ -210,7 +217,11 @@ def mutate(record_id: str, req: MutateRequest) -> dict:
 def replace(record_id: str, req: ReplaceRequest) -> dict:
     record = _get(record_id)
     try:
-        seq_mod.replace_range(record, req.start, req.end, req.sequence)
+        seq_mod.replace_range(
+            record, req.start, req.end, req.sequence, req.frame_policy
+        )
+    except seq_mod.FrameShiftError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except seq_mod.SequenceError as e:
         raise HTTPException(status_code=422, detail=str(e))
     store.save(record)

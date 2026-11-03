@@ -86,7 +86,8 @@ class PrimerDesignRequest(BaseModel):
 
 class AnnotateRequest(BaseModel):
     replace_existing: bool = False
-    min_identity: float = 0.95
+    min_identity: float = 0.80
+    min_coverage: float = 0.80
 
 
 # --------------------------------------------------------------------------
@@ -313,6 +314,7 @@ def annotate(record_id: str, req: AnnotateRequest) -> dict:
         record,
         replace_existing=req.replace_existing,
         min_identity=req.min_identity,
+        min_coverage=req.min_coverage,
     )
     store.save(record)
     return {

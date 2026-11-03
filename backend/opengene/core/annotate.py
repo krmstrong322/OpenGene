@@ -1,24 +1,35 @@
 """Auto-annotation against the bundled feature library.
 
-Pure-Python matcher (no external BLAST required). Each library entry is
-searched on both strands, allowing a small number of mismatches for longer
-features so that engineered point variants still annotate. When the optional
-``OPENGENE_BLAST`` hook is configured and NCBI BLAST+ is installed, callers
-may extend this via :func:`blast_available`, but it is never required.
+Pure-Python matcher (no external BLAST/HMMER). Each library part is found by
+seed-and-extend: short exact k-mers locate candidate sites, then a local
+alignment (Biopython ``PairwiseAligner``) scores the full part there. This
+tolerates substitutions *and* indels, finds partial parts, and reports the
+identity and coverage of every hit — unlike a plain exact scan.
+
+Both strands are searched, matches may wrap the origin of a circular record,
+and two rules keep short low-specificity motifs from firing spuriously:
+a ribosome-binding site is only called just upstream of a start codon, and a
+short motif contained inside a longer CDS/gene hit on the same strand is
+dropped.
+
+When NCBI BLAST+ is installed, :func:`blast_available` reports it so callers
+may offer it as an extra; it is never required here.
 """
 
 from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from importlib import resources
+
+from Bio import Align
 
 from ..models import Feature, FeatureType, PlasmidRecord
 from .sequence import reverse_complement
 
-# A color per feature type for the frontend map.
+# Color per feature type for the frontend map.
 TYPE_COLORS = {
     "promoter": "#4CAF50",
     "CDS": "#2196F3",
@@ -30,6 +41,10 @@ TYPE_COLORS = {
     "misc_feature": "#9E9E9E",
 }
 
+SEED = 12  # k-mer length for seeding; parts shorter than this are scanned exactly
+WINDOW_MARGIN = 12  # extra bases around a seed, to allow indels at the ends
+RBS_TO_ATG = 14  # a ribosome-binding site sits within this many bp of its ATG
+
 
 @dataclass
 class LibraryEntry:
@@ -39,6 +54,17 @@ class LibraryEntry:
     source: str = "canonical"
 
 
+@dataclass
+class Hit:
+    entry: LibraryEntry
+    start: int  # 0-indexed forward-strand coordinate
+    end: int  # 0-indexed exclusive (end < start wraps the origin)
+    strand: int
+    identity: float  # 0..1, gap-aware
+    coverage: float  # fraction of the library part that aligned
+    score: float = field(default=0.0)
+
+
 @lru_cache(maxsize=1)
 def load_library() -> list[LibraryEntry]:
     with resources.files("opengene.data").joinpath("feature_library.json").open() as fh:
@@ -46,100 +72,238 @@ def load_library() -> list[LibraryEntry]:
     return [LibraryEntry(**e) for e in raw]
 
 
-def _mismatches(a: str, b: str, limit: int) -> int:
-    """Count mismatches between equal-length strings, short-circuiting at limit."""
-    count = 0
-    for x, y in zip(a, b):
-        if x != y:
-            count += 1
-            if count > limit:
-                return count
-    return count
+def _aligner() -> Align.PairwiseAligner:
+    a = Align.PairwiseAligner()
+    a.mode = "local"
+    # Penalise mismatches and gaps enough that the alignment stops cleanly at a
+    # part's boundary instead of wandering into flanking sequence. This makes a
+    # truncated part report honest coverage (e.g. 60% present -> coverage 0.6)
+    # rather than inflating to full length at reduced identity.
+    a.match_score = 2
+    a.mismatch_score = -3
+    a.open_gap_score = -6
+    a.extend_gap_score = -2
+    return a
 
 
-def _allowed_mismatches(length: int) -> int:
-    """Permit ~5% mismatches for features >= 40 bp; exact for short motifs."""
-    if length < 40:
-        return 0
-    return max(1, length // 20)
+def _build_index(haystack: str) -> dict[str, list[int]]:
+    index: dict[str, list[int]] = {}
+    for i in range(len(haystack) - SEED + 1):
+        index.setdefault(haystack[i : i + SEED], []).append(i)
+    return index
 
 
-def _search_strand(
-    haystack: str, needle: str, search_len: int, limit: int
-) -> list[int]:
-    """Return start positions where ``needle`` matches within ``limit`` mismatches."""
+def _candidate_offsets(needle: str, index: dict[str, list[int]]) -> list[int]:
+    """Estimated haystack start positions where ``needle`` might align, from
+    seed hits projected back by the seed's offset within the needle."""
+    offsets: set[int] = set()
+    step = max(1, (len(needle) - SEED) // 6 or 1)  # a handful of seeds per part
+    for s in range(0, len(needle) - SEED + 1, step):
+        for pos in index.get(needle[s : s + SEED], ()):
+            offsets.add(pos - s)
+    # Merge offsets that fall within the same window so we align each site once.
+    merged: list[int] = []
+    for off in sorted(offsets):
+        if not merged or off - merged[-1] > WINDOW_MARGIN:
+            merged.append(off)
+    return merged
+
+
+def _align_at(
+    aligner: Align.PairwiseAligner, haystack: str, needle: str, offset: int
+) -> tuple[int, int, float, float] | None:
+    """Align ``needle`` against a window of ``haystack`` near ``offset``.
+    Returns (start, end, identity, coverage) in haystack coordinates, or None."""
+    lo = max(0, offset - WINDOW_MARGIN)
+    hi = min(len(haystack), offset + len(needle) + WINDOW_MARGIN)
+    window = haystack[lo:hi]
+    if len(window) < SEED:
+        return None
+    try:
+        aln = aligner.align(window, needle)[0]
+    except (ValueError, IndexError):
+        return None
+    counts = aln.counts()
+    aligned_cols = counts.identities + counts.mismatches
+    if aligned_cols == 0:
+        return None
+    identity = counts.identities / (aligned_cols + counts.gaps)
+    tgt = aln.aligned[0]
+    ndl = aln.aligned[1]
+    start = lo + int(tgt[0][0])
+    end = lo + int(tgt[-1][-1])
+    coverage = (int(ndl[-1][-1]) - int(ndl[0][0])) / len(needle)
+    return start, end, identity, coverage
+
+
+def _scan_exact(haystack: str, needle: str, search_len: int) -> list[int]:
     hits: list[int] = []
-    nlen = len(needle)
-    for i in range(search_len):
-        window = haystack[i:i + nlen]
-        if len(window) < nlen:
+    start = 0
+    while True:
+        i = haystack.find(needle, start, search_len + len(needle))
+        if i == -1 or i >= search_len:
             break
-        if limit == 0:
-            if window == needle:
-                hits.append(i)
-        elif _mismatches(window, needle, limit) <= limit:
-            hits.append(i)
+        hits.append(i)
+        start = i + 1
     return hits
 
 
 def annotate(
     record: PlasmidRecord,
     replace_existing: bool = False,
-    min_identity: float = 0.95,
+    min_identity: float = 0.80,
+    min_coverage: float = 0.80,
 ) -> list[Feature]:
-    """Detect and append features from the library. Returns the new features."""
+    """Detect and append library features. Returns the new features."""
     library = load_library()
     seq = record.sequence
     n = len(seq)
-    if n == 0:
+    if n == 0 or not library:
         return []
 
-    # For circular records, extend the haystack so matches can wrap the origin.
-    if record.is_circular and library:
-        max_needle = max(len(e.sequence) for e in library)
-        haystack = seq + seq[: min(max_needle - 1, n)]
-    else:
-        haystack = seq
+    max_needle = max(len(e.sequence) for e in library)
+    # Extend the haystack so a part can wrap the origin of a circular record.
+    pad = min(max_needle, n) if record.is_circular else 0
+    forward = seq + seq[:pad]
+    reverse = reverse_complement(seq) + reverse_complement(seq)[:pad]
+    search_len = n if record.is_circular else n
 
-    new_features: list[Feature] = []
-    existing_spans = {(f.start, f.end, f.strand) for f in record.features}
+    fwd_index = _build_index(forward)
+    rev_index = _build_index(reverse)
+    aligner = _aligner()
 
+    hits: list[Hit] = []
     for entry in library:
         needle = entry.sequence.upper()
         nlen = len(needle)
         if nlen == 0 or nlen > n:
             continue
-        limit = _allowed_mismatches(nlen)
-        # effective allowed mismatches also bounded by requested identity
-        limit = min(limit, int(nlen * (1 - min_identity)) if min_identity < 1 else limit)
 
-        search_len = n if record.is_circular else max(0, n - nlen + 1)
+        for strand, hay, index in ((1, forward, fwd_index), (-1, reverse, rev_index)):
+            if nlen < SEED:
+                # Too short to seed: require an exact match.
+                raw = [(p, p + nlen, 1.0, 1.0) for p in _scan_exact(hay, needle, search_len)]
+            else:
+                raw = []
+                for off in _candidate_offsets(needle, index):
+                    res = _align_at(aligner, hay, needle, off)
+                    if res is not None:
+                        raw.append(res)
 
-        for strand, target in ((1, needle), (-1, reverse_complement(needle))):
-            for pos in _search_strand(haystack, target, search_len, limit):
-                start = pos % n
-                end = (pos + nlen) % n
-                span = (start, end, strand)
-                if span in existing_spans:
+            for h_start, h_end, identity, coverage in raw:
+                if identity < min_identity or coverage < min_coverage:
                     continue
-                existing_spans.add(span)
-                new_features.append(
-                    Feature(
-                        name=entry.name,
-                        type=FeatureType(entry.type),
-                        start=start,
-                        end=end,
-                        strand=strand,
-                        color=TYPE_COLORS.get(entry.type, "#9E9E9E"),
-                        notes={"source": entry.source, "auto": "true"},
-                    )
+                if h_start >= search_len:
+                    continue
+                # Map reverse-strand window coords back to forward coordinates.
+                if strand == 1:
+                    f_start, f_end = h_start % n, h_end % n
+                else:
+                    total = len(seq)
+                    f_start = (total - h_end) % n
+                    f_end = (total - h_start) % n
+                hits.append(
+                    Hit(entry, f_start, f_end, strand, round(identity, 3),
+                        round(coverage, 3), identity * coverage * nlen)
                 )
+
+    kept = _resolve(hits, seq, n)
+
+    # When replacing, old features are discarded, so don't dedupe against them.
+    existing = (
+        set()
+        if replace_existing
+        else {(f.start, f.end, f.strand, f.name) for f in record.features}
+    )
+    new_features: list[Feature] = []
+    for h in kept:
+        key = (h.start, h.end, h.strand, h.entry.name)
+        if key in existing:
+            continue
+        existing.add(key)
+        new_features.append(
+            Feature(
+                name=h.entry.name,
+                type=FeatureType(h.entry.type),
+                start=h.start,
+                end=h.end,
+                strand=h.strand,
+                color=TYPE_COLORS.get(h.entry.type, "#9E9E9E"),
+                notes={
+                    "source": h.entry.source,
+                    "auto": "true",
+                    "identity": f"{h.identity:.0%}",
+                    "coverage": f"{h.coverage:.0%}",
+                },
+            )
+        )
 
     if replace_existing:
         record.features = new_features
     else:
         record.features.extend(new_features)
     return new_features
+
+
+def _span(start: int, end: int, n: int) -> set[int]:
+    if start <= end:
+        return set(range(start, end))
+    return set(range(start, n)) | set(range(0, end))
+
+
+def _resolve(hits: list[Hit], seq: str, n: int) -> list[Hit]:
+    """Drop spurious and redundant hits:
+
+    * a ribosome-binding site is kept only just upstream of a start codon;
+    * a short motif inside a longer CDS/gene hit on the same strand is dropped;
+    * when two hits of the *same part* overlap, keep the higher-scoring one.
+    """
+    cds_spans = [
+        (_span(h.start, h.end, n), h.strand)
+        for h in hits
+        if h.entry.type == "CDS"
+    ]
+
+    filtered: list[Hit] = []
+    for h in hits:
+        if h.entry.type == "RBS" and not _rbs_has_start(h, seq, n):
+            continue
+        if len(h.entry.sequence) < SEED and h.entry.type != "CDS":
+            inside = any(
+                h.strand == strand and _span(h.start, h.end, n) <= span
+                for span, strand in cds_spans
+            )
+            if inside:
+                continue
+        filtered.append(h)
+
+    # De-duplicate overlapping hits of the same part (keep the best).
+    filtered.sort(key=lambda x: x.score, reverse=True)
+    chosen: list[Hit] = []
+    for h in filtered:
+        hspan = _span(h.start, h.end, n)
+        if any(
+            c.entry.name == h.entry.name
+            and c.strand == h.strand
+            and hspan & _span(c.start, c.end, n)
+            for c in chosen
+        ):
+            continue
+        chosen.append(h)
+    chosen.sort(key=lambda x: (x.start, x.entry.name))
+    return chosen
+
+
+def _rbs_has_start(h: Hit, seq: str, n: int) -> bool:
+    """True if an ATG starts within RBS_TO_ATG bp downstream of the motif."""
+    if h.strand == 1:
+        region = "".join(seq[(h.end + i) % n] for i in range(RBS_TO_ATG + 3))
+        return "ATG" in region[:RBS_TO_ATG + 1]
+    rc = reverse_complement(seq)
+    # downstream on the - strand is before the motif's forward start
+    begin = (n - h.start) % n
+    region = "".join(rc[(begin + i) % n] for i in range(RBS_TO_ATG + 3))
+    return "ATG" in region[:RBS_TO_ATG + 1]
 
 
 def blast_available() -> bool:

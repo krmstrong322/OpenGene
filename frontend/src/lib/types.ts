@@ -54,7 +54,8 @@ export interface PlasmidRecord {
   features: Feature[];
   primers: Primer[];
   history: HistoryEvent[];
-  createdAt: number;
+  createdAt: number; // unix seconds
+  updatedAt: number; // unix seconds, last saved change of any kind
 }
 
 // A saved plasmid in the library listing (no sequence).

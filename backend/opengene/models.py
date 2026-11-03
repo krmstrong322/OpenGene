@@ -90,13 +90,11 @@ class PlasmidRecord(BaseModel):
     primers: list[Primer] = Field(default_factory=list)
     history: list[HistoryEvent] = Field(default_factory=list)
     created_at: float = Field(default_factory=time.time, alias="createdAt")
+    # Last time the record was saved after any change (sequence, features,
+    # primers, annotation). Stamped by SessionStore.add/save.
+    updated_at: float = Field(default_factory=time.time, alias="updatedAt")
 
     model_config = {"populate_by_name": True}
-
-    @property
-    def updated_at(self) -> float:
-        """Time of the last edit, or creation if it was never edited."""
-        return self.history[-1].timestamp if self.history else self.created_at
 
     def summary_api(self) -> dict:
         """Lightweight listing entry (no sequence) for the plasmid library."""

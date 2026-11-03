@@ -157,3 +157,15 @@ def test_list_records_is_a_light_summary_newest_first(client):
         "id", "name", "length", "isCircular", "featureCount", "createdAt", "updatedAt"
     }
     assert rows[0]["length"] == 11
+
+
+def test_any_change_counts_as_an_edit_for_the_library(client):
+    # Review: feature/annotation/primer changes must update "last edited" too.
+    a = _create(client, seq="ATGCATGCATGC")
+    b = _create(client, seq="GGGGCCCC")
+    assert client.get("/records").json()[0]["id"] == b["id"]
+    feat = {"name": "note", "type": "misc_feature", "start": 0, "end": 3, "strand": 1}
+    client.post(f"/records/{a['id']}/features", json=feat)
+    rows = client.get("/records").json()
+    assert rows[0]["id"] == a["id"]
+    assert rows[0]["updatedAt"] >= rows[1]["updatedAt"]

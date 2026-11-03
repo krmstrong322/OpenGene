@@ -151,7 +151,15 @@ def _replace_linear(record: PlasmidRecord, a: int, b: int, seq: str) -> list[Fea
     removed: list[Feature] = []
     for f in record.features:
         span = f.length(n)
-        if span > 0 and _overlap(edit, _segments(f.start, f.end, n)) >= span:
+        if span == 0:
+            # A point (zero-length) feature: both ends move together, or the
+            # separate start/end rules would stretch it over the new bases.
+            point = _map_start(f.start, a, b, len(seq))
+            if record.is_circular and new_n:
+                point %= new_n
+            kept.append(f.model_copy(update={"start": point, "end": point}))
+            continue
+        if _overlap(edit, _segments(f.start, f.end, n)) >= span:
             removed.append(f)
             continue
         if a <= f.start < b and a < f.end <= b:
@@ -159,11 +167,19 @@ def _replace_linear(record: PlasmidRecord, a: int, b: int, seq: str) -> list[Fea
             # range without being covered: what survives is the part outside
             # [a, b), which wraps around the new bases.
             start, end = a + len(seq), a
-            if start == end:  # nothing was inserted: it now spans everything
-                start, end = 0, new_n
         else:
             start = _map_start(f.start, a, b, len(seq))
             end = _map_end(f.end, a, b, len(seq))
+        # Normalise: a start at the very end of a circle is its origin, an end
+        # at 0 is the very end, and a non-empty feature whose ends meet now
+        # covers the whole sequence (start == end would otherwise read as
+        # zero length and hide a frame change from the guard).
+        if start == new_n:
+            start = 0
+        if end == 0 and start > 0:
+            end = new_n
+        if start == end:
+            start, end = 0, new_n
         kept.append(f.model_copy(update={"start": start, "end": end}))
     record.sequence = record.sequence[:a] + seq + record.sequence[b:]
     record.features = kept

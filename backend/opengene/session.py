@@ -12,6 +12,7 @@ every ``add`` / ``save`` and removed on ``delete``.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import time
@@ -51,9 +52,18 @@ class SessionStore:
 
     def _load_all(self) -> None:
         assert self._conn
-        for (data,) in self._conn.execute("SELECT data FROM records"):
+        for data, row_saved_at in self._conn.execute(
+            "SELECT data, updated_at FROM records"
+        ):
             try:
-                rec = PlasmidRecord.model_validate_json(data)
+                raw = json.loads(data)
+                # Rows saved before records carried timestamps: use the row's
+                # last-save time, which stays the same across restarts, rather
+                # than letting the load time become "created/edited just now".
+                for field, alias in (("created_at", "createdAt"), ("updated_at", "updatedAt")):
+                    if field not in raw and alias not in raw:
+                        raw[field] = row_saved_at
+                rec = PlasmidRecord.model_validate(raw)
                 self._records[rec.id] = rec
             except Exception:
                 # Skip corrupt rows rather than failing startup.
@@ -73,6 +83,7 @@ class SessionStore:
     # -- public API -------------------------------------------------------
 
     def add(self, record: PlasmidRecord) -> PlasmidRecord:
+        record.updated_at = time.time()
         with self._lock:
             self._records[record.id] = record
         self._persist(record)
@@ -80,6 +91,7 @@ class SessionStore:
 
     def save(self, record: PlasmidRecord) -> PlasmidRecord:
         """Persist in-place mutations of an already-stored record."""
+        record.updated_at = time.time()
         with self._lock:
             self._records[record.id] = record
         self._persist(record)

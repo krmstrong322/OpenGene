@@ -1,0 +1,20 @@
+{
+  "name": "opengene-desktop",
+  "version": "0.1.0",
+  "description": "OpenGene desktop app — Electron shell around the local plasmid engine",
+  "author": "OpenGene",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "stage": "node scripts/stage.js",
+    "start": "npm run stage && electron .",
+    "dist": "npm run stage && electron-builder",
+    "dist:mac": "npm run stage && electron-builder --mac",
+    "dist:win": "npm run stage && electron-builder --win",
+    "dist:linux": "npm run stage && electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  }
+}

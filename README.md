@@ -19,7 +19,17 @@ canvas that renders synchronized circular and linear plasmid maps.
 ```
 backend/    FastAPI + Biopython engine, feature library, tests   (see backend/README.md)
 frontend/   React 18 + TypeScript, custom-SVG maps               (see frontend/README.md)
+desktop/    Electron app — double-click install for labs         (see desktop/README.md)
 ```
+
+## For non-technical lab users (desktop app)
+
+Scientists don't need Python, Node, or a terminal. The `desktop/` package builds
+a signed-ready **macOS `.dmg`** and **Windows `.exe`** that bundle the engine and
+UI into one double-click app; plasmids persist locally in SQLite. Installers are
+produced by GitHub Actions (`.github/workflows/desktop-build.yml`) — push a `v*`
+tag and download the artifacts. End-user steps are in [docs/INSTALL.md](docs/INSTALL.md);
+build/signing details in [desktop/README.md](desktop/README.md).
 
 ## Quick start
 

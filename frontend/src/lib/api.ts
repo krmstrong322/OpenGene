@@ -7,7 +7,18 @@ import type {
   PrimerAnalysis,
 } from "./types";
 
-const BASE = "/api";
+// In the browser / dev server the Vite proxy serves the API under /api.
+// In the Electron desktop shell there is no proxy, so the preload script
+// injects the backend's absolute origin (http://127.0.0.1:<port>) as
+// window.__OPENGENE_API_BASE__.
+declare global {
+  interface Window {
+    __OPENGENE_API_BASE__?: string;
+  }
+}
+
+const BASE =
+  (typeof window !== "undefined" && window.__OPENGENE_API_BASE__) || "/api";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

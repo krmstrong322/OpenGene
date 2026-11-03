@@ -17,3 +17,12 @@ dist/
 # Env / OS
 .env
 .DS_Store
+
+# Desktop build outputs
+backend/build/
+backend/dist/
+desktop/renderer/
+desktop/backend/
+desktop/release/
+*.tsbuildinfo
+frontend/vite.config.js

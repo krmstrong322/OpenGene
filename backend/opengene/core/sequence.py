@@ -151,6 +151,16 @@ def _replace_linear(record: PlasmidRecord, a: int, b: int, seq: str) -> list[Fea
     removed: list[Feature] = []
     for f in record.features:
         span = f.length(n)
+        if span == n and new_n:
+            # Feature already covers the whole sequence. It still does after any
+            # edit — a delete just shrinks the circle, an insert falls inside it
+            # — so keep it covering the whole new sequence. Crucially this makes
+            # an insert at the origin grow it (length n -> n+L), so the frame
+            # guard sees the change instead of treating position 0 as an outside
+            # boundary. (A full-circle feature's exact start codon is not
+            # representable in half-open coordinates; see the model TODO.)
+            kept.append(f.model_copy(update={"start": 0, "end": new_n}))
+            continue
         if span == 0:
             # A point (zero-length) feature: both ends move together, or the
             # separate start/end rules would stretch it over the new bases.

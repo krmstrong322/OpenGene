@@ -9,6 +9,8 @@ feature) and no others (a feature that grew over neighbouring bases).
 
 import random
 
+import pytest
+
 from opengene.core import sequence as S
 from opengene.models import Feature, FeatureType, PlasmidRecord
 
@@ -130,3 +132,28 @@ def test_insert_at_origin_before_a_cds_after_wrapping_delete():
     assert (r.features[0].start, r.features[0].end) == (0, 9)
     S.insert(r, 0, "G")  # lands before the CDS: no frame change
     assert (r.features[0].start, r.features[0].end) == (1, 10)
+
+
+def test_wrapping_delete_then_origin_insert_is_guarded():
+    # Copilot PR #2 round 2: a wrapping delete reduces CDS [90,20) to the whole
+    # remaining circle. A later 1 bp insert must then be seen as inside it (a
+    # frameshift), not absorbed at a boundary.
+    r = PlasmidRecord(name="t", sequence="ACGT" * 25, is_circular=True,
+                      features=[Feature(name="cds", type=FeatureType.cds, start=90, end=20)])
+    S.delete(r, 11, 90)  # removes 9 coding bases (a multiple of 3): allowed
+    assert r.features[0].length(r.length) == r.length  # full circle now
+    with pytest.raises(S.FrameShiftError):
+        S.insert(r, 0, "A")
+    # a whole-codon insert is still fine, and keeps it full-circle
+    S.insert(r, 0, "ACG")
+    assert r.features[0].length(r.length) == r.length
+
+
+def test_full_circle_feature_stays_full_circle_under_edits():
+    for circular in (True,):
+        r = PlasmidRecord(name="t", sequence="ACGT" * 10, is_circular=circular,
+                          features=[Feature(name="whole", start=0, end=40)])
+        S.insert(r, 17, "GG")
+        assert (r.features[0].start, r.features[0].end) == (0, 42)
+        S.delete(r, 5, 11)
+        assert (r.features[0].start, r.features[0].end) == (0, 36)

@@ -45,6 +45,13 @@ class Feature(BaseModel):
     color: Optional[str] = None
     notes: dict[str, str] = Field(default_factory=dict)
 
+    # KNOWN LIMITATION (half-open coordinates): a feature that spans an entire
+    # circular sequence is stored as [0, length); its start codon position is
+    # not represented, so a feature reduced to the whole circle by an edit
+    # loses where translation begins. Faithful support needs a location model
+    # (e.g. storing start + length, or GenBank-style join()).  The frame guard
+    # does not depend on it: full-circle features are kept full-circle so any
+    # internal insert still changes their length.
     def wraps_origin(self, seq_len: int) -> bool:
         """True when the feature spans the origin of a circular sequence."""
         return self.start > self.end

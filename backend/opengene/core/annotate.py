@@ -94,11 +94,13 @@ def _build_index(haystack: str) -> dict[str, list[int]]:
 
 
 def _candidate_offsets(needle: str, index: dict[str, list[int]]) -> list[int]:
-    """Estimated haystack start positions where ``needle`` might align, from
-    seed hits projected back by the seed's offset within the needle."""
+    """Estimated haystack start positions where ``needle`` might align. Every
+    seed position in the needle is projected back by its offset, so a variant
+    with mismatches scattered across the part is still found as long as any one
+    SEED-length stretch survives intact. Offsets within a window are merged, so
+    seeding more positions does not mean aligning more sites."""
     offsets: set[int] = set()
-    step = max(1, (len(needle) - SEED) // 6 or 1)  # a handful of seeds per part
-    for s in range(0, len(needle) - SEED + 1, step):
+    for s in range(len(needle) - SEED + 1):
         for pos in index.get(needle[s : s + SEED], ()):
             offsets.add(pos - s)
     # Merge offsets that fall within the same window so we align each site once.
@@ -176,7 +178,11 @@ def annotate(
     for entry in library:
         needle = entry.sequence.upper()
         nlen = len(needle)
-        if nlen == 0 or nlen > n:
+        # A part longer than the whole record is not skipped: the local
+        # alignment simply matches the portion that is present, which is how a
+        # short record containing part of a large gene gets annotated. The
+        # search_len cap below still keeps a circular hit to one traversal.
+        if nlen == 0:
             continue
 
         for strand, hay, index in ((1, forward, fwd_index), (-1, reverse, rev_index)):
@@ -195,19 +201,26 @@ def annotate(
                     continue
                 if h_start >= search_len:
                     continue
-                # Map reverse-strand window coords back to forward coordinates.
+                # Map window coords to forward-strand coordinates. Only wrap for
+                # circular records: on a linear one a feature may legitimately
+                # end at the last base (end == n), which modulo would corrupt to
+                # 0 (the origin).
                 if strand == 1:
-                    f_start, f_end = h_start % n, h_end % n
+                    f_start, f_end = h_start, h_end
                 else:
-                    total = len(seq)
-                    f_start = (total - h_end) % n
-                    f_end = (total - h_start) % n
+                    f_start, f_end = n - h_end, n - h_start
+                if record.is_circular:
+                    f_start %= n
+                    f_end %= n
+                # Store raw identity/coverage; round only for display, so an
+                # exact match (identity exactly 1.0) is never confused with a
+                # near-exact one that would round up to 100%.
                 hits.append(
-                    Hit(entry, f_start, f_end, strand, round(identity, 3),
-                        round(coverage, 3), identity * coverage * nlen)
+                    Hit(entry, f_start, f_end, strand, identity, coverage,
+                        identity * coverage * nlen)
                 )
 
-    kept = _resolve(hits, seq, n)
+    kept = _resolve(hits, seq, n, record.is_circular)
 
     # When replacing, old features are discarded, so don't dedupe against them.
     existing = (
@@ -221,6 +234,7 @@ def annotate(
         if key in existing:
             continue
         existing.add(key)
+        exact = h.identity >= 1.0 and h.coverage >= 1.0
         new_features.append(
             Feature(
                 name=h.entry.name,
@@ -232,8 +246,9 @@ def annotate(
                 notes={
                     "source": h.entry.source,
                     "auto": "true",
-                    "identity": f"{h.identity:.0%}",
+                    "identity": f"{h.identity:.1%}",
                     "coverage": f"{h.coverage:.0%}",
+                    "exact": "true" if exact else "false",
                 },
             )
         )
@@ -251,7 +266,7 @@ def _span(start: int, end: int, n: int) -> set[int]:
     return set(range(start, n)) | set(range(0, end))
 
 
-def _resolve(hits: list[Hit], seq: str, n: int) -> list[Hit]:
+def _resolve(hits: list[Hit], seq: str, n: int, circular: bool) -> list[Hit]:
     """Drop spurious and redundant hits:
 
     * a ribosome-binding site is kept only just upstream of a start codon;
@@ -266,7 +281,7 @@ def _resolve(hits: list[Hit], seq: str, n: int) -> list[Hit]:
 
     filtered: list[Hit] = []
     for h in hits:
-        if h.entry.type == "RBS" and not _rbs_has_start(h, seq, n):
+        if h.entry.type == "RBS" and not _rbs_has_start(h, seq, n, circular):
             continue
         if len(h.entry.sequence) < SEED and h.entry.type != "CDS":
             inside = any(
@@ -294,16 +309,25 @@ def _resolve(hits: list[Hit], seq: str, n: int) -> list[Hit]:
     return chosen
 
 
-def _rbs_has_start(h: Hit, seq: str, n: int) -> bool:
-    """True if an ATG starts within RBS_TO_ATG bp downstream of the motif."""
+def _rbs_has_start(h: Hit, seq: str, n: int, circular: bool) -> bool:
+    """True if a start codon begins within RBS_TO_ATG bp downstream (3') of the
+    motif, reading along the motif's own strand. The window is long enough to
+    hold an ATG that *starts* at the last allowed offset. On a linear record
+    the window stops at the sequence end rather than wrapping to the far end,
+    which are not adjacent."""
+    window = RBS_TO_ATG + 3  # an ATG starting at offset RBS_TO_ATG needs 3 bases
     if h.strand == 1:
-        region = "".join(seq[(h.end + i) % n] for i in range(RBS_TO_ATG + 3))
-        return "ATG" in region[:RBS_TO_ATG + 1]
-    rc = reverse_complement(seq)
-    # downstream on the - strand is before the motif's forward start
-    begin = (n - h.start) % n
-    region = "".join(rc[(begin + i) % n] for i in range(RBS_TO_ATG + 3))
-    return "ATG" in region[:RBS_TO_ATG + 1]
+        src, begin = seq, h.end
+    else:
+        # Downstream on the - strand runs toward lower forward coordinates; in
+        # the reverse-complement sequence that is forward from (n - start).
+        src, begin = reverse_complement(seq), (n - h.start)
+    if circular:
+        begin %= n
+        region = "".join(src[(begin + i) % n] for i in range(window))
+    else:
+        region = src[begin : begin + window]  # stops at the end; ends don't wrap
+    return "ATG" in region
 
 
 def blast_available() -> bool:

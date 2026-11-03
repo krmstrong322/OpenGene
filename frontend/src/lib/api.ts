@@ -135,10 +135,19 @@ export const api = {
       }),
     }),
 
-  annotate: (id: string, replaceExisting = false, minIdentity = 0.95) =>
+  annotate: (
+    id: string,
+    opts: { replaceExisting?: boolean; minIdentity?: number; minCoverage?: number } = {},
+  ) =>
     req<{ added: Feature[]; record: PlasmidRecord }>(`/records/${id}/annotate`, {
       method: "POST",
-      body: JSON.stringify({ replace_existing: replaceExisting, min_identity: minIdentity }),
+      // Only send thresholds the caller set, so the backend defaults apply
+      // otherwise (and don't drift from a hardcoded number here).
+      body: JSON.stringify({
+        replace_existing: opts.replaceExisting ?? false,
+        ...(opts.minIdentity !== undefined ? { min_identity: opts.minIdentity } : {}),
+        ...(opts.minCoverage !== undefined ? { min_coverage: opts.minCoverage } : {}),
+      }),
     }),
 
   addFeature: (id: string, feature: Omit<Feature, "id" | "notes"> & { notes?: Record<string, string> }) =>

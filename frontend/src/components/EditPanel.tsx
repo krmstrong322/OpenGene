@@ -270,7 +270,7 @@ function FeaturesTab({ record, onRecordChange, onSelectFeature, onError }: Props
                     className="match-quality"
                     title={`auto-annotated · ${f.notes.identity} identity · ${f.notes.coverage} coverage`}
                   >
-                    {f.notes.identity === "100%" && f.notes.coverage === "100%"
+                    {f.notes.exact === "true"
                       ? "exact"
                       : `${f.notes.identity}·${f.notes.coverage}`}
                   </span>

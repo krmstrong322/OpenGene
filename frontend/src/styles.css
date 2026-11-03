@@ -39,6 +39,9 @@ body {
 .brand {
   font-size: 18px;
   margin-right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .spacer {
   flex: 1;
@@ -310,4 +313,21 @@ h4 {
   .workspace {
     grid-template-columns: 1fr;
   }
+}
+
+/* Warning recorded by the last edit (frame padding / allowed frameshift) */
+.notice {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid #f3d38a;
+  background: #fff8e1;
+  color: #7a4f00;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.notice p {
+  margin: 0;
+}
+.notice p + p {
+  margin-top: 4px;
 }

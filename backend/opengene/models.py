@@ -77,6 +77,7 @@ class HistoryEvent(BaseModel):
     op: str
     description: str
     timestamp: float
+    warnings: list[str] = Field(default_factory=list)
 
 
 class PlasmidRecord(BaseModel):

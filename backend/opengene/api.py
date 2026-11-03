@@ -47,11 +47,13 @@ class CreateRequest(BaseModel):
 class InsertRequest(BaseModel):
     position: int
     sequence: str
+    frame_policy: seq_mod.FramePolicy = "reject"
 
 
 class DeleteRequest(BaseModel):
     start: int
     end: int
+    frame_policy: seq_mod.FramePolicy = "reject"
 
 
 class MutateRequest(BaseModel):
@@ -63,6 +65,7 @@ class ReplaceRequest(BaseModel):
     start: int
     end: int
     sequence: str
+    frame_policy: seq_mod.FramePolicy = "reject"
 
 
 class DigestRequest(BaseModel):
@@ -153,12 +156,20 @@ async def import_file(file: UploadFile = File(...)) -> dict:
 
 
 @app.get("/records/{record_id}/export", response_class=PlainTextResponse)
-def export_record(record_id: str, fmt: str = "genbank") -> str:
+def export_record(record_id: str, fmt: str = "genbank") -> PlainTextResponse:
     record = _get(record_id)
+    ext = {"genbank": "gb", "gb": "gb", "fasta": "fasta", "embl": "embl"}.get(
+        fmt.lower(), "txt"
+    )
     try:
-        return io_files.export_string(record, fmt)
+        body = io_files.export_string(record, fmt)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    safe = "".join(c for c in record.name if c.isalnum() or c in "-_.") or "plasmid"
+    return PlainTextResponse(
+        body,
+        headers={"Content-Disposition": f'attachment; filename="{safe}.{ext}"'},
+    )
 
 
 # --------------------------------------------------------------------------
@@ -169,9 +180,12 @@ def export_record(record_id: str, fmt: str = "genbank") -> str:
 def insert(record_id: str, req: InsertRequest) -> dict:
     record = _get(record_id)
     try:
-        seq_mod.insert(record, req.position, req.sequence)
+        seq_mod.insert(record, req.position, req.sequence, req.frame_policy)
+    except seq_mod.FrameShiftError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except seq_mod.SequenceError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    store.save(record)
     return _record_response(record)
 
 
@@ -179,9 +193,12 @@ def insert(record_id: str, req: InsertRequest) -> dict:
 def delete(record_id: str, req: DeleteRequest) -> dict:
     record = _get(record_id)
     try:
-        seq_mod.delete(record, req.start, req.end)
+        seq_mod.delete(record, req.start, req.end, req.frame_policy)
+    except seq_mod.FrameShiftError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except seq_mod.SequenceError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    store.save(record)
     return _record_response(record)
 
 
@@ -192,6 +209,7 @@ def mutate(record_id: str, req: MutateRequest) -> dict:
         seq_mod.mutate(record, req.position, req.base)
     except seq_mod.SequenceError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    store.save(record)
     return _record_response(record)
 
 
@@ -199,9 +217,14 @@ def mutate(record_id: str, req: MutateRequest) -> dict:
 def replace(record_id: str, req: ReplaceRequest) -> dict:
     record = _get(record_id)
     try:
-        seq_mod.replace_range(record, req.start, req.end, req.sequence)
+        seq_mod.replace_range(
+            record, req.start, req.end, req.sequence, req.frame_policy
+        )
+    except seq_mod.FrameShiftError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except seq_mod.SequenceError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    store.save(record)
     return _record_response(record)
 
 
@@ -209,6 +232,7 @@ def replace(record_id: str, req: ReplaceRequest) -> dict:
 def reverse_complement(record_id: str) -> dict:
     record = _get(record_id)
     seq_mod.reverse_complement_record(record)
+    store.save(record)
     return _record_response(record)
 
 
@@ -260,6 +284,7 @@ def design_primers(record_id: str, req: PrimerDesignRequest) -> dict:
         record, req.region_start, req.region_end, req.target_tm
     )
     record.primers.extend([fwd, rev])
+    store.save(record)
     return {
         "forward": fwd.model_dump(by_alias=True),
         "reverse": rev.model_dump(by_alias=True),
@@ -278,6 +303,7 @@ def annotate(record_id: str, req: AnnotateRequest) -> dict:
         replace_existing=req.replace_existing,
         min_identity=req.min_identity,
     )
+    store.save(record)
     return {
         "added": [f.model_dump() for f in new],
         "record": _record_response(record),
@@ -288,6 +314,7 @@ def annotate(record_id: str, req: AnnotateRequest) -> dict:
 def add_feature(record_id: str, feature: Feature) -> dict:
     record = _get(record_id)
     record.features.append(feature)
+    store.save(record)
     return _record_response(record)
 
 
@@ -295,6 +322,7 @@ def add_feature(record_id: str, feature: Feature) -> dict:
 def delete_feature(record_id: str, feature_id: str) -> dict:
     record = _get(record_id)
     record.features = [f for f in record.features if f.id != feature_id]
+    store.save(record)
     return _record_response(record)
 
 

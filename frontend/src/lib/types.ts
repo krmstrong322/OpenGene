@@ -39,7 +39,11 @@ export interface HistoryEvent {
   op: string;
   description: string;
   timestamp: number;
+  warnings: string[];
 }
+
+// How an edit inside a CDS that would break its reading frame is handled.
+export type FramePolicy = "reject" | "pad" | "allow";
 
 export interface PlasmidRecord {
   id: string;

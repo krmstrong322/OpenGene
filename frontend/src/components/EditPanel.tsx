@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../lib/api";
-import type { CutSite, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
+import type { CutSite, FramePolicy, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 
 interface Props {
   record: PlasmidRecord;
@@ -50,11 +50,16 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
   const [insertSeq, setInsertSeq] = useState("");
   const [insertPos, setInsertPos] = useState(0);
   const [mutBase, setMutBase] = useState("A");
+  const [framePolicy, setFramePolicy] = useState<FramePolicy>("reject");
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const run = async (fn: () => Promise<PlasmidRecord>) => {
     try {
-      onRecordChange(await fn());
+      const updated = await fn();
+      setWarnings(updated.history[updated.history.length - 1]?.warnings ?? []);
+      onRecordChange(updated);
     } catch (e) {
+      setWarnings([]);
       onError((e as Error).message);
     }
   };
@@ -65,6 +70,29 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
 
   return (
     <div className="stack">
+      <section>
+        <h4>Reading frame</h4>
+        <label htmlFor="frame-policy">
+          edits inside a CDS that aren't a multiple of 3 bp
+          <select
+            id="frame-policy"
+            value={framePolicy}
+            onChange={(e) => setFramePolicy(e.target.value as FramePolicy)}
+          >
+            <option value="reject">Block them (protect coding sequences)</option>
+            <option value="pad">Pad inserts with N to a whole codon</option>
+            <option value="allow">Allow the frameshift and log a warning</option>
+          </select>
+        </label>
+        {warnings.length > 0 && (
+          <div className="notice" role="status">
+            {warnings.map((w, i) => (
+              <p key={i}>{w}</p>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section>
         <h4>Insert</h4>
         <label>
@@ -88,14 +116,14 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
         <div className="row">
           <button
             disabled={!insertSeq}
-            onClick={() => run(() => api.insert(record.id, insertPos, insertSeq))}
+            onClick={() => run(() => api.insert(record.id, insertPos, insertSeq, framePolicy))}
           >
             Insert at {insertPos}
           </button>
           {hasRange && (
             <button
               disabled={!insertSeq}
-              onClick={() => run(() => api.insert(record.id, selLo, insertSeq))}
+              onClick={() => run(() => api.insert(record.id, selLo, insertSeq, framePolicy))}
             >
               Insert at selection start
             </button>
@@ -111,12 +139,12 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
               {selLo}–{selHi} ({selHi - selLo} bp)
             </p>
             <div className="row">
-              <button onClick={() => run(() => api.del(record.id, selLo, selHi))}>
+              <button onClick={() => run(() => api.del(record.id, selLo, selHi, framePolicy))}>
                 Delete
               </button>
               <button
                 disabled={!insertSeq}
-                onClick={() => run(() => api.replace(record.id, selLo, selHi, insertSeq))}
+                onClick={() => run(() => api.replace(record.id, selLo, selHi, insertSeq, framePolicy))}
               >
                 Replace with insert seq
               </button>

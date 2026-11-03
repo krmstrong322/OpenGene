@@ -1,0 +1,72 @@
+appId: org.opengene.desktop
+productName: OpenGene
+copyright: OpenGene contributors
+
+directories:
+  output: release
+  buildResources: build
+
+# Only the Electron shell goes inside the app's asar archive.
+files:
+  - electron/**
+  - package.json
+
+# The built UI and the packaged Python backend ride along as plain resources
+# (outside asar) so the backend executable can be spawned and the renderer
+# loaded from disk.
+extraResources:
+  - from: renderer
+    to: renderer
+  - from: backend
+    to: backend
+
+# ---------------------------------------------------------------------------
+# macOS — unsigned for now. To enable signing + notarization later:
+#   1. set env CSC_LINK (base64 .p12) and CSC_KEY_PASSWORD in CI secrets
+#   2. set `identity` to your "Developer ID Application: …" name (remove null)
+#   3. set notarize: true and provide APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+#      APPLE_TEAM_ID (electron-builder reads these from the environment);
+#      `notarize` lives under `mac:`
+# The entitlements file below is required once hardenedRuntime is on, because
+# the bundled Python needs unsigned-memory / library-validation exceptions.
+# ---------------------------------------------------------------------------
+mac:
+  icon: build/icon.icns
+  category: public.app-category.education
+  target:
+    - dmg
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: false
+
+dmg:
+  title: OpenGene ${version}
+  # OpenGene-0.1.0-arm64.dmg (Apple Silicon) / OpenGene-0.1.0-x64.dmg (Intel)
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# ---------------------------------------------------------------------------
+# Windows — unsigned for now. To enable signing later, set CSC_LINK /
+# CSC_KEY_PASSWORD (or configure an Azure Trusted Signing / EV provider) in CI;
+# electron-builder picks them up automatically with no config change here.
+# ---------------------------------------------------------------------------
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+# Linux build is handy for local testing / Linux labs.
+linux:
+  icon: build/icon.png
+  target:
+    - AppImage
+  category: Education

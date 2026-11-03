@@ -1,13 +1,25 @@
 import type {
   CutSite,
   Feature,
+  FramePolicy,
   ORF,
   PlasmidRecord,
   Primer,
   PrimerAnalysis,
 } from "./types";
 
-const BASE = "/api";
+// In the browser / dev server the Vite proxy serves the API under /api.
+// In the Electron desktop shell there is no proxy, so the preload script
+// injects the backend's absolute origin (http://127.0.0.1:<port>) as
+// window.__OPENGENE_API_BASE__.
+declare global {
+  interface Window {
+    __OPENGENE_API_BASE__?: string;
+  }
+}
+
+const BASE =
+  (typeof window !== "undefined" && window.__OPENGENE_API_BASE__) || "/api";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -58,16 +70,16 @@ export const api = {
 
   exportUrl: (id: string, fmt: string) => `${BASE}/records/${id}/export?fmt=${fmt}`,
 
-  insert: (id: string, position: number, sequence: string) =>
+  insert: (id: string, position: number, sequence: string, framePolicy: FramePolicy = "reject") =>
     req<PlasmidRecord>(`/records/${id}/insert`, {
       method: "POST",
-      body: JSON.stringify({ position, sequence }),
+      body: JSON.stringify({ position, sequence, frame_policy: framePolicy }),
     }),
 
-  del: (id: string, start: number, end: number) =>
+  del: (id: string, start: number, end: number, framePolicy: FramePolicy = "reject") =>
     req<PlasmidRecord>(`/records/${id}/delete`, {
       method: "POST",
-      body: JSON.stringify({ start, end }),
+      body: JSON.stringify({ start, end, frame_policy: framePolicy }),
     }),
 
   mutate: (id: string, position: number, base: string) =>
@@ -76,10 +88,16 @@ export const api = {
       body: JSON.stringify({ position, base }),
     }),
 
-  replace: (id: string, start: number, end: number, sequence: string) =>
+  replace: (
+    id: string,
+    start: number,
+    end: number,
+    sequence: string,
+    framePolicy: FramePolicy = "reject",
+  ) =>
     req<PlasmidRecord>(`/records/${id}/replace`, {
       method: "POST",
-      body: JSON.stringify({ start, end, sequence }),
+      body: JSON.stringify({ start, end, sequence, frame_policy: framePolicy }),
     }),
 
   reverseComplement: (id: string) =>

@@ -60,10 +60,11 @@ Open the app and click **Load demo**.
 - **ORF detection** across all 6 reading frames (including origin-crossing ORFs)
 - **Restriction** — cut-site mapping, digest fragment sizes, unique cutters (NEB set)
 - **Primers** — Tm / GC / hairpin / dimer analysis and PCR primer-pair design (primer3)
-- **Auto-annotation** — pure-Python matching against a bundled feature library
-  (promoters, terminators, tags, resistance genes, fluorescent proteins; no
-  replication origins yet), on both
-  strands, exact + near-exact
+- **Auto-annotation** — pure-Python seed-and-extend matching against a bundled
+  feature library (promoters, terminators, tags, resistance genes, fluorescent
+  proteins; no replication origins yet) on both strands and across the origin;
+  tolerates substitutions and indels, finds partial parts, and reports identity
+  and coverage per hit
 
 ## Design decisions
 

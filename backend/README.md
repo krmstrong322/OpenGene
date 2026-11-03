@@ -40,7 +40,7 @@ OpenAPI docs are served at `http://localhost:8000/docs`.
 | **ORFs** | Detection across all 6 reading frames, including ORFs that cross the origin of circular records. |
 | **Restriction** | Cut-site mapping, digest fragment sizes, unique-cutter detection using every commercially available enzyme (NEB included; not yet filterable to NEB only). |
 | **Primers** | Tm / GC / hairpin / dimer analysis and PCR primer-pair design around a target region. |
-| **Annotation** | Pure-Python auto-annotation against a bundled 29-part library (promoters, terminators, tags, protease sites, resistance genes, fluorescent proteins; no replication origins yet) on both strands. Long parts tolerate a few base substitutions; insertions/deletions and partial parts aren't matched. `/health` reports whether BLAST+ is installed, but annotation doesn't use it. |
+| **Annotation** | Pure-Python **seed-and-extend** auto-annotation against a bundled 29-part library (promoters, terminators, tags, protease sites, resistance genes, fluorescent proteins; no replication origins yet) on both strands, wrapping the origin. Local alignment tolerates substitutions **and** indels, finds **partial** parts, and reports each hit's **identity** and **coverage** (thresholds `min_identity` / `min_coverage`, default 0.80). A ribosome-binding site is only called upstream of a start codon; a short motif inside a longer CDS hit is dropped. `/health` reports whether BLAST+ is installed; annotation doesn't require it. |
 
 ## Feature library
 
@@ -78,7 +78,7 @@ GET    /records/{id}/unique_cutters
 POST   /primers/analyze              {sequence, target_tm}
 POST   /records/{id}/design_primers  {region_start, region_end, target_tm}
 
-POST   /records/{id}/annotate        {replace_existing, min_identity}
+POST   /records/{id}/annotate        {replace_existing, min_identity, min_coverage}
 POST   /records/{id}/features        add a manual feature
 DELETE /records/{id}/features/{fid}
 GET    /feature_library

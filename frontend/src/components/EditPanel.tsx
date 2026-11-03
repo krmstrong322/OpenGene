@@ -265,6 +265,16 @@ function FeaturesTab({ record, onRecordChange, onSelectFeature, onError }: Props
               </button>
               <span className="muted">
                 {f.start}–{f.end} {f.strand === 1 ? "+" : "−"}
+                {f.notes?.auto === "true" && f.notes?.identity && (
+                  <span
+                    className="match-quality"
+                    title={`auto-annotated · ${f.notes.identity} identity · ${f.notes.coverage} coverage`}
+                  >
+                    {f.notes.exact === "true"
+                      ? "exact"
+                      : `${f.notes.identity}·${f.notes.coverage}`}
+                  </span>
+                )}
               </span>
               <button
                 className="x"

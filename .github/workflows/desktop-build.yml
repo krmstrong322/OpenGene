@@ -10,6 +10,10 @@ on:
   push:
     tags:
       - "v*"
+    # A release/* branch also builds, for pushers that can't push tags
+    # (e.g. automated sessions limited to branch pushes).
+    branches:
+      - "release/**"
 
 jobs:
   build:

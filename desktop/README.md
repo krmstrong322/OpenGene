@@ -38,6 +38,9 @@ git tag v0.1.0 && git push origin v0.1.0
 #     OpenGene Setup 0.1.0.exe  (Windows x64)
 ```
 
+Pushing a branch named `release/<version>` (e.g. `release/v0.1.0`) runs the
+same build, which helps when you can push branches but not tags.
+
 The workflow is `.github/workflows/desktop-build.yml`. Each macOS architecture
 is built on its own runner (`macos-15` for Apple Silicon, `macos-15-intel` for
 Intel) because PyInstaller cannot cross-compile the bundled Python backend.

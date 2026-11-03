@@ -43,3 +43,30 @@ def test_in_memory_store_has_no_file(tmp_path, monkeypatch):
     # no file side effects to assert; just ensure clear works
     store.clear()
     assert store.list() == []
+
+
+def test_old_rows_without_timestamps_get_stable_ones(tmp_path):
+    # Rows saved before createdAt/updatedAt existed must still open, and take
+    # their times from the row's last save, not from when the app started.
+    import sqlite3, json
+    path = f"{tmp_path}/opengene.sqlite3"
+    SessionStore(db_path=path)  # creates the table
+    row = {"id": "legacy1", "name": "old", "isCircular": True, "sequence": "ACGT",
+           "features": [], "primers": [], "history": []}
+    saved_at = 1_700_000_000.0
+    con = sqlite3.connect(path)
+    con.execute("INSERT INTO records VALUES (?,?,?,?)", ("legacy1", "old", json.dumps(row), saved_at))
+    con.commit(); con.close()
+    for _ in range(2):  # same answer on every restart
+        loaded = SessionStore(db_path=path).get("legacy1")
+        assert loaded.sequence == "ACGT"
+        assert loaded.created_at == saved_at and loaded.updated_at == saved_at
+
+
+def test_timestamps_round_trip(tmp_path):
+    path = f"{tmp_path}/opengene.sqlite3"
+    store = SessionStore(db_path=path)
+    rec = PlasmidRecord(name="p", sequence="ACGT")
+    store.add(rec)
+    loaded = SessionStore(db_path=path).get(rec.id)
+    assert (loaded.created_at, loaded.updated_at) == (rec.created_at, rec.updated_at)

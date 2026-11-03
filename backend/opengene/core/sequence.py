@@ -85,35 +85,19 @@ def slice_circular(seq: str, start: int, end: int) -> str:
 # --------------------------------------------------------------------------
 # Feature coordinate maintenance
 # --------------------------------------------------------------------------
-
-def _shift_point(pos: int, at: int, delta: int, old_len: int) -> int:
-    """Shift a single coordinate for an insert/delete of ``delta`` at ``at``."""
-    if delta >= 0:  # insertion
-        # Coordinates strictly past the insertion point shift; a coordinate
-        # sitting exactly on the insertion point stays, so inserted bases fall
-        # outside an existing feature's boundary rather than silently extending
-        # it. (An insert strictly inside a feature is absorbed, as its end > at.)
-        return pos + delta if pos > at else pos
-    # deletion of abs(delta) bases starting at `at`
-    removed = -delta
-    end_del = at + removed
-    if pos <= at:
-        return pos
-    if pos >= end_del:
-        return pos + delta
-    return at  # position fell inside the deleted span
-
-
-def _adjust_features(
-    features: Iterable[Feature], at: int, delta: int, old_len: int
-) -> list[Feature]:
-    adjusted: list[Feature] = []
-    for f in features:
-        new_start = _shift_point(f.start, at, delta, old_len)
-        new_end = _shift_point(f.end, at, delta, old_len)
-        nf = f.model_copy(update={"start": new_start, "end": new_end})
-        adjusted.append(nf)
-    return adjusted
+#
+# Every edit is "replace the half-open range [a, b) with L new bases": an
+# insert has a == b, a delete has L == 0. All three go through one set of
+# coordinate rules, and the reading-frame guard replays the same edit on a
+# copy, so the guard can never disagree with what the edit actually does.
+#
+#   feature start x:  x < a  -> x      a <= x < b  -> a       x >= b -> shifted
+#   feature end   x:  x <= a -> x      a < x <= b  -> a + L   x > b  -> shifted
+#
+# Consequences: an insert exactly at a feature's start lands before it, an
+# insert exactly at its end lands after it, new bases that replace part of a
+# feature become part of it, and a feature lying entirely inside [a, b) is
+# removed, because it was replaced.
 
 
 def _record_history(
@@ -127,6 +111,126 @@ def _record_history(
             warnings=list(warnings or []),
         )
     )
+
+
+def _segments(start: int, end: int, n: int) -> list[tuple[int, int]]:
+    """Linear pieces of a half-open interval that may wrap the origin."""
+    if start < end:
+        return [(start, end)]
+    if start > end:
+        return [(start, n), (0, end)]
+    return []
+
+
+def _overlap(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> int:
+    return sum(max(0, min(a1, b1) - max(a0, b0)) for a0, a1 in a for b0, b1 in b)
+
+
+def _map_start(x: int, a: int, b: int, length: int) -> int:
+    if x < a:
+        return x
+    if x < b:
+        return a
+    return x + length - (b - a)
+
+
+def _map_end(x: int, a: int, b: int, length: int) -> int:
+    if x <= a:
+        return x
+    if x <= b:
+        return a + length
+    return x + length - (b - a)
+
+
+def _replace_linear(record: PlasmidRecord, a: int, b: int, seq: str) -> list[Feature]:
+    """Replace ``[a, b)`` (a <= b) with ``seq``. Returns features it removed."""
+    n = record.length
+    new_n = n - (b - a) + len(seq)
+    edit = _segments(a, b, n)
+    kept: list[Feature] = []
+    removed: list[Feature] = []
+    for f in record.features:
+        span = f.length(n)
+        if span == n and new_n:
+            # Feature already covers the whole sequence. It still does after any
+            # edit — a delete just shrinks the circle, an insert falls inside it
+            # — so keep it covering the whole new sequence. Crucially this makes
+            # an insert at the origin grow it (length n -> n+L), so the frame
+            # guard sees the change instead of treating position 0 as an outside
+            # boundary. (A full-circle feature's exact start codon is not
+            # representable in half-open coordinates; see the model TODO.)
+            kept.append(f.model_copy(update={"start": 0, "end": new_n}))
+            continue
+        if span == 0:
+            # A point (zero-length) feature: both ends move together, or the
+            # separate start/end rules would stretch it over the new bases.
+            point = _map_start(f.start, a, b, len(seq))
+            if record.is_circular and new_n:
+                point %= new_n
+            kept.append(f.model_copy(update={"start": point, "end": point}))
+            continue
+        if _overlap(edit, _segments(f.start, f.end, n)) >= span:
+            removed.append(f)
+            continue
+        if a <= f.start < b and a < f.end <= b:
+            # Only an origin-wrapping feature can have both ends inside the
+            # range without being covered: what survives is the part outside
+            # [a, b), which wraps around the new bases.
+            start, end = a + len(seq), a
+        else:
+            start = _map_start(f.start, a, b, len(seq))
+            end = _map_end(f.end, a, b, len(seq))
+        # Normalise: a start at the very end of a circle is its origin, an end
+        # at 0 is the very end, and a non-empty feature whose ends meet now
+        # covers the whole sequence (start == end would otherwise read as
+        # zero length and hide a frame change from the guard).
+        if start == new_n:
+            start = 0
+        if end == 0 and start > 0:
+            end = new_n
+        if start == end:
+            start, end = 0, new_n
+        kept.append(f.model_copy(update={"start": start, "end": end}))
+    record.sequence = record.sequence[:a] + seq + record.sequence[b:]
+    record.features = kept
+    return removed
+
+
+def _rotate_raw(record: PlasmidRecord, k: int) -> None:
+    """Make old index ``k`` the new origin of a circular record."""
+    n = record.length
+    k %= n
+    if k == 0:
+        return
+    record.sequence = record.sequence[k:] + record.sequence[:k]
+    rotated: list[Feature] = []
+    for f in record.features:
+        if f.length(n) == n:  # covers the whole circle; leave it whole
+            rotated.append(f)
+            continue
+        start, end = (f.start - k) % n, (f.end - k) % n
+        if end == 0 and start > 0:
+            end = n  # ends exactly at the new origin
+        rotated.append(f.model_copy(update={"start": start, "end": end}))
+    record.features = rotated
+
+
+def _edit_raw(record: PlasmidRecord, a: int, b: int, seq: str) -> list[Feature]:
+    """Replace ``[a, b)`` with ``seq`` (no checks, no history). ``a > b``
+    means the range wraps the origin; the kept sequence then starts at the old
+    index ``b`` and the new bases go at its end. Returns removed features."""
+    if a > b:
+        _rotate_raw(record, b)
+        return _replace_linear(record, a - b, record.length, seq)
+    return _replace_linear(record, a, b, seq)
+
+
+def _check_range(record: PlasmidRecord, start: int, end: int) -> None:
+    n = record.length
+    if not (0 <= start <= n and 0 <= end <= n):
+        raise SequenceError(f"range [{start},{end}) out of bounds for length {n}")
+    if start > end and not record.is_circular:
+        raise SequenceError("wrap-around range requires a circular sequence")
 
 
 # --------------------------------------------------------------------------
@@ -148,48 +252,6 @@ class FrameShiftError(SequenceError):
     """Raised when an edit would shift the reading frame of a CDS."""
 
 
-def _segments(start: int, end: int, n: int) -> list[tuple[int, int]]:
-    """Linear pieces of a half-open interval that may wrap the origin."""
-    if start < end:
-        return [(start, end)]
-    if start > end:
-        return [(start, n), (0, end)]
-    return []
-
-
-def _overlap(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> int:
-    return sum(max(0, min(a1, b1) - max(a0, b0)) for a0, a1 in a for b0, b1 in b)
-
-
-def _cds_features(record: PlasmidRecord) -> list[Feature]:
-    return [f for f in record.features if f.type == FeatureType.cds]
-
-
-def _cds_containing(record: PlasmidRecord, pos: int) -> list[Feature]:
-    """CDS features with ``pos`` strictly inside them (not on a boundary)."""
-    n = record.length
-    hits: list[Feature] = []
-    for f in _cds_features(record):
-        span = f.length(n)
-        if n and span > 0 and 0 < (pos - f.start) % n < span:
-            hits.append(f)
-    return hits
-
-
-def _cds_cut(record: PlasmidRecord, start: int, end: int) -> list[tuple[Feature, int]]:
-    """CDS features partly removed by deleting ``[start, end)``, with the
-    number of their bases removed. A CDS deleted entirely is not listed: it is
-    gone, so it has no frame left to shift."""
-    n = record.length
-    cut = _segments(start, end, n)
-    hits: list[tuple[Feature, int]] = []
-    for f in _cds_features(record):
-        removed = _overlap(cut, _segments(f.start, f.end, n))
-        if 0 < removed < f.length(n):
-            hits.append((f, removed))
-    return hits
-
-
 def _check_policy(policy: str) -> None:
     if policy not in FRAME_POLICIES:
         raise SequenceError(
@@ -197,65 +259,76 @@ def _check_policy(policy: str) -> None:
         )
 
 
-def _resolve_frame(
-    policy: str, problem: str, delta: int, inserted: str | None
-) -> tuple[str | None, list[str]]:
-    """Apply the frame policy to a violation. Returns the (possibly padded)
-    inserted sequence and any warnings to record."""
-    if policy == "allow":
-        return inserted, [f"frameshift allowed: {problem}"]
-    if policy == "pad":
-        if inserted is None:
-            raise FrameShiftError(
-                f"{problem}. Padding only applies to inserted bases; delete a "
-                "multiple of 3 bp instead, or choose to allow the frameshift."
-            )
-        k = (-delta) % 3
-        return inserted + "N" * k, [
-            f"padded with {k} N to keep the reading frame ({problem}); "
-            "replace the N bases with the sequence you intend"
-        ]
-    raise FrameShiftError(
-        f"{problem}, so it would shift the reading frame. Use a multiple of 3 bp, "
-        "or choose to pad the insert or allow the frameshift."
-    )
-
-
 def _names(features: Iterable[Feature]) -> str:
     return ", ".join(sorted({f.name for f in features}))
 
 
-# --------------------------------------------------------------------------
-# Raw edits (no checks, no history) — shared by the public operations
-# --------------------------------------------------------------------------
-
-def _insert_raw(record: PlasmidRecord, pos: int, seq: str) -> None:
-    old_len = record.length
-    record.sequence = record.sequence[:pos] + seq + record.sequence[pos:]
-    record.features = _adjust_features(record.features, pos, len(seq), old_len)
-
-
-def _delete_raw(record: PlasmidRecord, start: int, end: int) -> None:
-    n = record.length
-    if start > end:
-        # Wrapping span: keep [end, start). The kept sequence now begins at the
-        # old index `end`, so coordinates are rebuilt relative to that origin.
-        record.sequence = record.sequence[end:start]
-        record.features = _adjust_features(record.features, 0, -end, n)
-        record.features = _adjust_features(
-            record.features, start - end, -(n - start), n - end
-        )
-        return
-    record.sequence = record.sequence[:start] + record.sequence[end:]
-    record.features = _adjust_features(record.features, start, -(end - start), n)
+def _frame_shifts(
+    record: PlasmidRecord, a: int, b: int, seq: str
+) -> list[tuple[Feature, int]]:
+    """Replay the edit on a copy and return each CDS whose length would change
+    by a non-multiple of 3, with that change. A CDS the edit removes entirely
+    is not listed: it has no reading frame left to shift."""
+    trial = record.model_copy(deep=True)
+    _edit_raw(trial, a, b, seq)
+    after = {f.id: f for f in trial.features}
+    shifts: list[tuple[Feature, int]] = []
+    for f in record.features:
+        if f.type != FeatureType.cds or f.id not in after:
+            continue
+        change = after[f.id].length(trial.length) - f.length(record.length)
+        if change % 3:
+            shifts.append((f, change))
+    return shifts
 
 
-def _check_range(record: PlasmidRecord, start: int, end: int) -> None:
-    n = record.length
-    if not (0 <= start <= n and 0 <= end <= n):
-        raise SequenceError(f"range [{start},{end}) out of bounds for length {n}")
-    if start > end and not record.is_circular:
-        raise SequenceError("wrap-around range requires a circular sequence")
+def _apply_edit(
+    record: PlasmidRecord,
+    a: int,
+    b: int,
+    seq: str,
+    policy: str,
+    action: str,
+) -> tuple[str, list[str]]:
+    """Check the reading frame of every CDS the edit touches, then apply it.
+    Returns the bases actually inserted (padding included) and the warnings
+    to record."""
+    warnings: list[str] = []
+    shifts = _frame_shifts(record, a, b, seq)
+    if shifts:
+        detail = ", ".join(f"{f.name} by {d:+d} bp" for f, d in shifts)
+        problem = f"{action} changes {detail}, not a multiple of 3"
+        if policy == "allow":
+            warnings.append(f"frameshift allowed: {problem}")
+        elif policy == "pad":
+            if not seq:
+                raise FrameShiftError(
+                    f"{problem}. Padding only applies to inserted bases; delete a "
+                    "multiple of 3 bp instead, or choose to allow the frameshift."
+                )
+            for k in (1, 2):
+                if not _frame_shifts(record, a, b, seq + "N" * k):
+                    seq += "N" * k
+                    warnings.append(
+                        f"padded with {k} N to keep the reading frame ({problem}); "
+                        "replace the N bases with the sequence you intend"
+                    )
+                    break
+            else:
+                raise FrameShiftError(
+                    f"{problem}. Padding can't fix this: the affected coding "
+                    "sequences would need different amounts. Adjust the edit, "
+                    "or choose to allow the frameshift."
+                )
+        else:
+            raise FrameShiftError(
+                f"{problem}, so it would shift the reading frame. Use a multiple "
+                "of 3 bp, or choose to pad the insert or allow the frameshift."
+            )
+    removed = _edit_raw(record, a, b, seq)
+    if removed:
+        warnings.append(f"removed {_names(removed)}: the edit covered it entirely")
+    return seq, warnings
 
 
 # --------------------------------------------------------------------------
@@ -274,22 +347,11 @@ def insert(
     if not insert_seq:
         raise SequenceError("nothing to insert")
     pos = normalize_index(position, record.length, record.is_circular)
-
-    warnings: list[str] = []
-    affected = _cds_containing(record, pos)
-    if affected and len(insert_seq) % 3:
-        problem = (
-            f"inserting {len(insert_seq)} bp at {pos} changes {_names(affected)} "
-            f"by +{len(insert_seq)} bp, not a multiple of 3"
-        )
-        insert_seq, warnings = _resolve_frame(
-            frame_policy, problem, len(insert_seq), insert_seq
-        )
-
-    _insert_raw(record, pos, insert_seq)
-    _record_history(
-        record, "insert", f"inserted {len(insert_seq)} bp at {pos}", warnings
+    inserted, warnings = _apply_edit(
+        record, pos, pos, insert_seq, frame_policy,
+        f"inserting {len(insert_seq)} bp at {pos}",
     )
+    _record_history(record, "insert", f"inserted {len(inserted)} bp at {pos}", warnings)
     return record
 
 
@@ -307,16 +369,10 @@ def delete(
     _check_range(record, start, end)
     if start == end:
         raise SequenceError("nothing to delete: empty range")
-
-    warnings: list[str] = []
-    shifted = [(f, k) for f, k in _cds_cut(record, start, end) if k % 3]
-    if shifted:
-        detail = ", ".join(f"{f.name} by -{k} bp" for f, k in shifted)
-        problem = f"deleting [{start},{end}) changes {detail}, not a multiple of 3"
-        _, warnings = _resolve_frame(frame_policy, problem, 0, None)
-
     removed = sum(b - a for a, b in _segments(start, end, n))
-    _delete_raw(record, start, end)
+    _, warnings = _apply_edit(
+        record, start, end, "", frame_policy, f"deleting [{start},{end})"
+    )
     where = "spanning origin" if start > end else f"at [{start},{end})"
     _record_history(record, "delete", f"deleted {removed} bp {where}", warnings)
     return record
@@ -348,8 +404,9 @@ def replace_range(
 ) -> PlasmidRecord:
     """Replace ``[start, end)`` with ``replacement``.
 
-    The frame check looks at the *net* length change, so swapping a codon for
-    a codon passes even though it is done as a delete followed by an insert.
+    The frame check measures each CDS's actual new length, so a codon-for-codon
+    swap passes and a replacement that overhangs a CDS end is judged by what
+    happens to that CDS, not by the net change to the whole record.
     """
     _check_policy(frame_policy)
     replacement = validate_sequence(replacement)
@@ -357,28 +414,14 @@ def replace_range(
     _check_range(record, start, end)
     if start == end:
         return insert(record, start, replacement, frame_policy)
-
     removed = sum(b - a for a, b in _segments(start, end, n))
-    delta = len(replacement) - removed
-
-    warnings: list[str] = []
-    affected = [f for f, _ in _cds_cut(record, start, end)]
-    if affected and delta % 3:
-        problem = (
-            f"replacing [{start},{end}) changes {_names(affected)} by {delta:+d} bp, "
-            "not a multiple of 3"
-        )
-        replacement, warnings = _resolve_frame(frame_policy, problem, delta, replacement)
-
-    _delete_raw(record, start, end)
-    # After a wrapping delete the kept sequence starts at the old `end`, so the
-    # gap left by the deletion sits at the very end of it.
-    at = start if start < end else record.length
-    _insert_raw(record, at, replacement)
+    inserted, warnings = _apply_edit(
+        record, start, end, replacement, frame_policy, f"replacing [{start},{end})"
+    )
     _record_history(
         record,
         "replace",
-        f"replaced {removed} bp at [{start},{end}) with {len(replacement)} bp",
+        f"replaced {removed} bp at [{start},{end}) with {len(inserted)} bp",
         warnings,
     )
     return record

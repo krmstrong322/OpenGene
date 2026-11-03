@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CircularMap } from "./components/CircularMap";
 import { EditPanel } from "./components/EditPanel";
 import { LinearMap } from "./components/LinearMap";
+import { RecordLibrary } from "./components/RecordLibrary";
 import { SequenceViewer } from "./components/SequenceViewer";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
@@ -86,7 +87,15 @@ export default function App() {
 
   return (
     <div className="app">
-      <Toolbar record={record} onRecordChange={setRecord} onError={setError} />
+      <Toolbar
+        record={record}
+        onRecordChange={setRecord}
+        onError={setError}
+        onShowLibrary={() => {
+          setRecord(null);
+          setSelection(null);
+        }}
+      />
       {error && (
         <div className="error-bar" onClick={() => setError(null)}>
           {error} <span className="muted">(click to dismiss)</span>
@@ -94,12 +103,15 @@ export default function App() {
       )}
 
       {!record ? (
-        <div className="empty">
-          <h2>No construct loaded</h2>
-          <p className="muted">Create or import a sequence, or try the demo.</p>
-          <button onClick={loadDemo}>Load demo (T7 · 6×His · GFP · terminator)</button>
-          <p className="status muted small">{status}</p>
-        </div>
+        <RecordLibrary
+          onOpen={(r) => {
+            setSelection(null);
+            setRecord(r);
+          }}
+          onDemo={loadDemo}
+          onError={setError}
+          status={status}
+        />
       ) : (
         <div className="workspace">
           <div className="maps">

@@ -76,25 +76,29 @@ automatically.
 
 Installers build **unsigned** today. First-time users will see a warning
 (macOS Gatekeeper / Windows SmartScreen); `docs/INSTALL.md` walks them through
-it. To remove that warning later, add secrets — no YAML or config change is
-needed beyond flipping the two noted values:
+it. To remove that warning, add repository secrets (Settings → Secrets and
+variables → Actions). The workflow already passes them to the build, and each
+platform only sees its own certificate.
 
-**macOS** (`electron-builder.yml` → `mac`)
-1. Enroll in the Apple Developer Program.
-2. CI secrets: `CSC_LINK` (base64 of your Developer ID `.p12`), `CSC_KEY_PASSWORD`.
-3. For notarization: `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`,
-   and set `mac.notarize: true`.
-4. Set `identity` to your `Developer ID Application: …` name (remove `null`) and
-   `hardenedRuntime: true` (the entitlements in `build/entitlements.mac.plist`
-   are already wired for the bundled Python).
+**Windows** (no config change)
+1. Obtain a code-signing certificate (OV or EV).
+2. Add secrets `WIN_CSC_LINK` (the `.pfx`, base64-encoded) and
+   `WIN_CSC_KEY_PASSWORD`. The next build is signed.
 
-**Windows** (`electron-builder.yml` → `win`)
-1. Obtain a code-signing certificate (OV/EV, or Azure Trusted Signing).
-2. CI secrets: `CSC_LINK`, `CSC_KEY_PASSWORD` — electron-builder uses them
-   automatically.
+**macOS** (secrets plus three values in `electron-builder.yml` → `mac`)
+1. Enroll in the Apple Developer Program and export your
+   *Developer ID Application* certificate as a `.p12`.
+2. Add secrets `MAC_CSC_LINK` (the `.p12`, base64-encoded) and
+   `MAC_CSC_KEY_PASSWORD`.
+3. For notarization, add `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and
+   `APPLE_TEAM_ID`.
+4. In `electron-builder.yml` set `identity` to your
+   `Developer ID Application: …` name (replacing `null`), `hardenedRuntime: true`
+   and `notarize: true`. The entitlements in `build/entitlements.mac.plist` are
+   already set up for the bundled Python.
 
-Until those secrets exist, `CSC_IDENTITY_AUTO_DISCOVERY=false` in CI keeps the
-build unsigned instead of failing.
+Secrets that aren't set are simply skipped, so the build stays unsigned rather
+than failing.
 
 ## Icons
 

@@ -61,7 +61,8 @@ Open the app and click **Load demo**.
 - **Restriction** — cut-site mapping, digest fragment sizes, unique cutters (NEB set)
 - **Primers** — Tm / GC / hairpin / dimer analysis and PCR primer-pair design (primer3)
 - **Auto-annotation** — pure-Python matching against a bundled feature library
-  (promoters, tags, resistance genes, origins, fluorescent proteins), on both
+  (promoters, terminators, tags, resistance genes, fluorescent proteins; no
+  replication origins yet), on both
   strands, exact + near-exact
 
 ## Design decisions

@@ -54,6 +54,19 @@ export interface PlasmidRecord {
   features: Feature[];
   primers: Primer[];
   history: HistoryEvent[];
+  createdAt: number; // unix seconds
+  updatedAt: number; // unix seconds, last saved change of any kind
+}
+
+// A saved plasmid in the library listing (no sequence).
+export interface RecordSummary {
+  id: string;
+  name: string;
+  length: number;
+  isCircular: boolean;
+  featureCount: number;
+  createdAt: number; // unix seconds
+  updatedAt: number; // unix seconds
 }
 
 export interface ORF {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CircularMap } from "./components/CircularMap";
 import { EditPanel } from "./components/EditPanel";
 import { LinearMap } from "./components/LinearMap";
@@ -6,6 +6,7 @@ import { RecordLibrary } from "./components/RecordLibrary";
 import { SequenceViewer } from "./components/SequenceViewer";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
+import { normalizeSpan } from "./lib/selection";
 import type { CutSite, Feature, ORF, PlasmidRecord, Selection } from "./lib/types";
 
 const DEMO_SEQ =
@@ -42,25 +43,23 @@ export default function App() {
       .catch(() => setStatus("backend offline"));
   }, []);
 
-  // Keep ORF overlay in sync with the sequence while it's shown.
+  // Keep ORF overlay in sync with the sequence while it's shown. Clear the old
+  // list immediately on any change so stale coordinates can't be clicked while
+  // the refetch is in flight; the normalized results replace it when they land.
   useEffect(() => {
-    if (!record || !showOrfs) {
-      setOrfs([]);
-      return;
-    }
+    setOrfs([]);
+    if (!record || !showOrfs) return;
     let cancelled = false;
     const n = record.length;
+    const circular = record.isCircular;
     api
       .orfs(record.id, minOrfAa)
       .then((list) => {
         if (cancelled) return;
-        // A full-record ORF comes back as start === end (both reduced mod n)
-        // with length_bp === n. Normalize it to span the whole record so it
-        // draws as a full ring / full bar and selects the whole sequence.
+        // Endpoints come back modulo n; normalize full-record and terminal
+        // linear spans so each track draws and selects the right bases.
         setOrfs(
-          list.map((o) =>
-            o.start === o.end && o.length_bp > 0 ? { ...o, start: 0, end: n } : o,
-          ),
+          list.map((o) => ({ ...o, ...normalizeSpan(o.start, o.end, n, circular, o.length_bp) })),
         );
       })
       .catch(() => !cancelled && setOrfs([]));
@@ -69,6 +68,17 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record?.id, record?.sequence, showOrfs, minOrfAa]);
+
+  // Primer overlay spans, with terminal linear endpoints normalized the same
+  // way (the record's primers are the source of truth; the backend drops any
+  // that a sequence edit would make stale).
+  const displayPrimers = useMemo(() => {
+    if (!record) return [];
+    return record.primers.map((p) => {
+      const s = normalizeSpan(p.bindStart, p.bindEnd, record.length, record.isCircular);
+      return { ...p, bindStart: s.start, bindEnd: s.end };
+    });
+  }, [record]);
 
   const undo = useCallback(async () => {
     if (!record?.canUndo) return;
@@ -134,6 +144,26 @@ export default function App() {
     },
     [record?.isCircular],
   );
+
+  // Keep a feature-anchored selection in sync with its feature. When the record
+  // changes (an edit to the feature's coordinates, or undo/redo) the selection
+  // follows the feature's new span, or clears if the feature was removed — so
+  // the highlight and Delete/Replace never target the feature's old range.
+  useEffect(() => {
+    if (!record || !selection?.featureId) return;
+    const f = record.features.find((x) => x.id === selection.featureId);
+    if (!f) {
+      setSelection(null);
+    } else if (f.start !== selection.start || f.end !== selection.end) {
+      setSelection({
+        start: f.start,
+        end: f.end,
+        featureId: f.id,
+        wrap: record.isCircular ? f.end < f.start : false,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record]);
 
   const selectFeatureById = useCallback(
     (id: string) => {
@@ -249,7 +279,7 @@ export default function App() {
                 onSelectFeature={selectFeature}
                 onHover={setHoveredId}
                 hoveredId={hoveredId}
-                primers={showPrimers ? record.primers : []}
+                primers={showPrimers ? displayPrimers : []}
                 orfs={showOrfs ? orfs : []}
                 onSelectRange={selectRange}
               />
@@ -263,7 +293,7 @@ export default function App() {
                 onSelectFeature={selectFeature}
                 onHover={setHoveredId}
                 hoveredId={hoveredId}
-                primers={showPrimers ? record.primers : []}
+                primers={showPrimers ? displayPrimers : []}
                 orfs={showOrfs ? orfs : []}
                 onSelectRange={selectRange}
               />

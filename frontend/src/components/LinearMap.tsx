@@ -2,16 +2,7 @@ import { useMemo } from "react";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { TYPE_COLORS } from "../lib/types";
 import { selectionSegments } from "../lib/selection";
-
-// The half-open segments a [start,end) span occupies, splitting at the origin
-// when it wraps (end < start).
-function spanSegments(start: number, end: number, length: number): [number, number][] {
-  return end >= start ? [[start, end]] : [[start, length], [0, end]];
-}
-
-function segsOverlap(a: [number, number][], b: [number, number][]): boolean {
-  return a.some(([a0, a1]) => b.some(([b0, b1]) => a0 < b1 && b0 < a1));
-}
+import { spanSegments, stackSpans } from "../lib/geometry";
 
 interface Props {
   record: PlasmidRecord;
@@ -30,25 +21,6 @@ const PAD = 40;
 const TRACK_Y = 60;
 const TRACK_H = 16;
 const THIN_H = 9; // overlay (primer / ORF) track height
-
-// Greedy lane packing for arbitrary [start,end] spans. A wrapping span occupies
-// both of its rendered segments ([start,length) and [0,end)), so both are
-// checked when deciding whether a lane is free — otherwise a wrapping track
-// could be packed on top of another near the origin.
-function stackSpans(spans: [number, number][], length: number): number[] {
-  const lanes: [number, number][][] = []; // occupied segments per lane
-  return spans.map(([start, end]) => {
-    const segs = spanSegments(start, end, length);
-    let lane = lanes.findIndex((placed) => !segsOverlap(placed, segs));
-    if (lane === -1) {
-      lanes.push([...segs]);
-      lane = lanes.length - 1;
-    } else {
-      lanes[lane].push(...segs);
-    }
-    return lane;
-  });
-}
 
 // Stack overlapping features into lanes.
 function assignLanes(features: Feature[], length: number): Map<string, number> {
@@ -186,13 +158,7 @@ export function LinearMap({
         const y = TRACK_Y + 20 + lane * (TRACK_H + 6);
         const color = f.color || TYPE_COLORS[f.type] || "#9E9E9E";
         const active = hoveredId === f.id || selection?.featureId === f.id;
-        const wraps = f.end < f.start;
-        const segments = wraps
-          ? [
-              [f.start, length],
-              [0, f.end],
-            ]
-          : [[f.start, f.end]];
+        const segments = spanSegments(f.start, f.end, length);
         return (
           <g
             key={f.id}
@@ -237,10 +203,7 @@ export function LinearMap({
       )}
       {primers.map((p, i) => {
         const y = primerBandY + primerLanes[i] * (THIN_H + 3);
-        const wraps = p.bindEnd < p.bindStart;
-        const segs: [number, number][] = wraps
-          ? [[p.bindStart, length], [0, p.bindEnd]]
-          : [[p.bindStart, p.bindEnd]];
+        const segs = spanSegments(p.bindStart, p.bindEnd, length);
         return (
           <g
             key={`primer-${p.id}`}
@@ -271,10 +234,7 @@ export function LinearMap({
       )}
       {orfs.map((o, i) => {
         const y = orfBandY + orfLanes[i] * (THIN_H + 3);
-        const wraps = o.end < o.start;
-        const segs: [number, number][] = wraps
-          ? [[o.start, length], [0, o.end]]
-          : [[o.start, o.end]];
+        const segs = spanSegments(o.start, o.end, length);
         return (
           <g
             key={`orf-${i}`}

@@ -5,6 +5,35 @@ export interface Point {
   y: number;
 }
 
+// The half-open base segments a [start,end) span occupies, split at the origin
+// when it wraps (end < start).
+export function spanSegments(start: number, end: number, length: number): [number, number][] {
+  return end >= start ? [[start, end]] : [[start, length], [0, end]];
+}
+
+function segsOverlap(a: [number, number][], b: [number, number][]): boolean {
+  return a.some(([a0, a1]) => b.some(([b0, b1]) => a0 < b1 && b0 < a1));
+}
+
+// Greedy lane packing for [start,end) spans that may wrap the origin. A span is
+// placed on the first lane where neither of its segments overlaps anything
+// already there, so wrapping spans can't be packed on top of another near the
+// origin. Returns the lane index assigned to each input span.
+export function stackSpans(spans: [number, number][], length: number): number[] {
+  const lanes: [number, number][][] = [];
+  return spans.map(([start, end]) => {
+    const segs = spanSegments(start, end, length);
+    let lane = lanes.findIndex((placed) => !segsOverlap(placed, segs));
+    if (lane === -1) {
+      lanes.push([...segs]);
+      lane = lanes.length - 1;
+    } else {
+      lanes[lane].push(...segs);
+    }
+    return lane;
+  });
+}
+
 /** Convert a base position to an angle in radians (0 = top, clockwise). */
 export function baseToAngle(base: number, length: number): number {
   return (base / length) * 2 * Math.PI - Math.PI / 2;

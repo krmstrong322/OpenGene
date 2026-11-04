@@ -282,6 +282,34 @@ def _frame_shifts(
     return shifts
 
 
+def _invalidate_primers(record: PlasmidRecord, a: int, b: int) -> list[str]:
+    """Drop primers a length-changing edit of ``[a, b)`` would leave stale, and
+    return their names.
+
+    Primer bindings are not remapped through edits, so only those lying entirely
+    upstream of a linear edit (``bind_end <= a``, non-wrapping) keep valid
+    coordinates and are kept. Anything overlapping or downstream of the edit —
+    and everything when the edit wraps the origin — is dropped, so no primer is
+    ever shown or clicked at a coordinate that no longer matches the sequence.
+    """
+    if not record.primers:
+        return []
+    if a > b:  # edit wraps the origin: the whole coordinate frame shifts
+        dropped = [p.name for p in record.primers]
+        record.primers = []
+        return dropped
+    kept: list = []
+    dropped: list[str] = []
+    for p in record.primers:
+        non_wrapping = p.bind_start <= p.bind_end and p.bind_end != 0
+        if non_wrapping and p.bind_end <= a:
+            kept.append(p)
+        else:
+            dropped.append(p.name)
+    record.primers = kept
+    return dropped
+
+
 def _apply_edit(
     record: PlasmidRecord,
     a: int,
@@ -325,9 +353,15 @@ def _apply_edit(
                 f"{problem}, so it would shift the reading frame. Use a multiple "
                 "of 3 bp, or choose to pad the insert or allow the frameshift."
             )
+    dropped_primers = _invalidate_primers(record, a, b)
     removed = _edit_raw(record, a, b, seq)
     if removed:
         warnings.append(f"removed {_names(removed)}: the edit covered it entirely")
+    if dropped_primers:
+        warnings.append(
+            f"dropped primers {', '.join(sorted(dropped_primers))}: their binding "
+            "sites shifted or changed; re-design against the edited sequence"
+        )
     return seq, warnings
 
 
@@ -445,7 +479,14 @@ def reverse_complement_record(record: PlasmidRecord) -> PlasmidRecord:
             )
         )
     record.features = flipped
-    _record_history(record, "reverse_complement", "reverse-complemented record")
+    warnings: list[str] = []
+    if record.primers:
+        warnings.append(
+            f"dropped primers {', '.join(sorted(p.name for p in record.primers))}: "
+            "reverse-complement changes the strand they bind; re-design if needed"
+        )
+        record.primers = []
+    _record_history(record, "reverse_complement", "reverse-complemented record", warnings)
     return record
 
 

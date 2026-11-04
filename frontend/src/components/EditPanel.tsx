@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../lib/api";
 import { selectionLength } from "../lib/selection";
+import { TYPE_COLORS } from "../lib/types";
 import type {
   CutSite,
   Feature,
@@ -366,7 +367,13 @@ function FeatureEditor({
   const [strand, setStrand] = useState<number>(feature.strand);
   const [start, setStart] = useState(feature.start);
   const [end, setEnd] = useState(feature.end);
-  const [color, setColor] = useState(feature.color || "#9E9E9E");
+  // The color input needs a concrete value, so fall back to the feature's
+  // effective (type) color for display. But a feature with no explicit color
+  // takes its color from its type on the maps, so only send `color` when the
+  // user actually picks one — otherwise renaming a CDS would pin it to the
+  // fallback and override its type color.
+  const [color, setColor] = useState(feature.color || TYPE_COLORS[feature.type] || "#9E9E9E");
+  const [colorTouched, setColorTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
@@ -378,7 +385,7 @@ function FeatureEditor({
         strand: strand as 1 | -1,
         start,
         end,
-        color,
+        ...(colorTouched ? { color } : {}),
       });
       onRecordChange(updated);
       onDone();
@@ -435,7 +442,14 @@ function FeatureEditor({
         </label>
         <label>
           color
-          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => {
+              setColor(e.target.value);
+              setColorTouched(true);
+            }}
+          />
         </label>
       </div>
       {record.isCircular && end < start && (

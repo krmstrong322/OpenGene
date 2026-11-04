@@ -6,6 +6,7 @@ import {
   baseToAngle,
   directedArcPath,
   polar,
+  stackSpans,
   tick,
 } from "../lib/geometry";
 
@@ -85,8 +86,14 @@ export function CircularMap({
     : -1;
   const featuresInner =
     R_BACKBONE - 6 - maxRing * (RING_W + 4) - (maxRing >= 0 ? RING_W : 0);
-  const rOrfFwd = Math.max(R_ORF_MIN + THIN_W + 4, featuresInner - 12);
-  const rOrfRev = Math.max(R_ORF_MIN, rOrfFwd - (THIN_W + 4));
+  const rOrfTop = Math.max(R_ORF_MIN, featuresInner - 12);
+  // Stack overlapping ORFs onto successive inner rings (segment-aware, so a
+  // wrapping ORF can't cover another near the origin), with a floor so deep
+  // stacks stay on-canvas.
+  const orfLane = useMemo(
+    () => stackSpans(orfs.map((o) => [o.start, o.end]), length),
+    [orfs, length],
+  );
 
   const tickBases = useMemo(() => {
     const step = niceStep(length);
@@ -168,7 +175,7 @@ export function CircularMap({
 
       {/* ORFs (overlay, behind features) */}
       {orfs.map((o, i) => {
-        const r = o.strand >= 0 ? rOrfFwd : rOrfRev;
+        const r = Math.max(R_ORF_MIN, rOrfTop - orfLane[i] * (THIN_W + 3));
         return (
           <path
             key={`orf-${i}`}

@@ -8,9 +8,18 @@ interface Props {
   onRecordChange: (r: PlasmidRecord) => void;
   onError: (msg: string) => void;
   onShowLibrary: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
-export function Toolbar({ record, onRecordChange, onError, onShowLibrary }: Props) {
+export function Toolbar({
+  record,
+  onRecordChange,
+  onError,
+  onShowLibrary,
+  onUndo,
+  onRedo,
+}: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("new_construct");
@@ -42,6 +51,24 @@ export function Toolbar({ record, onRecordChange, onError, onShowLibrary }: Prop
         OpenGene
       </strong>
       {record && <button onClick={onShowLibrary}>Plasmids</button>}
+      {record && (
+        <>
+          <button
+            onClick={onUndo}
+            disabled={!record.canUndo}
+            title="Undo (Ctrl/Cmd+Z)"
+          >
+            ↶ Undo
+          </button>
+          <button
+            onClick={onRedo}
+            disabled={!record.canRedo}
+            title="Redo (Ctrl/Cmd+Shift+Z)"
+          >
+            ↷ Redo
+          </button>
+        </>
+      )}
       <button onClick={() => setShowNew((v) => !v)}>New</button>
       <button onClick={() => fileRef.current?.click()}>Import…</button>
       <input

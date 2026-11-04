@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { CutSite, Feature, PlasmidRecord, Selection } from "../lib/types";
+import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { TYPE_COLORS } from "../lib/types";
 import {
   arcPath,
@@ -16,6 +16,9 @@ interface Props {
   onSelectFeature: (f: Feature) => void;
   onHover: (featureId: string | null) => void;
   hoveredId: string | null;
+  primers?: Primer[];
+  orfs?: ORF[];
+  onSelectRange?: (sel: Selection) => void;
 }
 
 const SIZE = 560;
@@ -23,6 +26,12 @@ const CX = SIZE / 2;
 const CY = SIZE / 2;
 const R_BACKBONE = 190;
 const RING_W = 22;
+// Overlay tracks: ORFs sit on two thin rings (one per strand) inside the
+// feature band; primers hug the backbone just inside it.
+const R_PRIMER = R_BACKBONE - 1;
+const R_ORF_FWD = 86;
+const R_ORF_REV = 72;
+const THIN_W = 7;
 
 // Assign features to stacked rings so overlapping features don't collide.
 function assignRings(features: Feature[], length: number): Map<string, number> {
@@ -58,6 +67,9 @@ export function CircularMap({
   onSelectFeature,
   onHover,
   hoveredId,
+  primers = [],
+  orfs = [],
+  onSelectRange,
 }: Props) {
   const length = record.length || 1;
   const ringOf = useMemo(
@@ -142,6 +154,50 @@ export function CircularMap({
           opacity={0.7}
         />
       )}
+
+      {/* ORFs (overlay, behind features) */}
+      {orfs.map((o, i) => {
+        const r = o.strand >= 0 ? R_ORF_FWD : R_ORF_REV;
+        return (
+          <path
+            key={`orf-${i}`}
+            d={directedArcPath(CX, CY, r - THIN_W / 2, r + THIN_W / 2, o.start, o.end, length, o.strand)}
+            fill="#78909c"
+            opacity={0.5}
+            style={{ cursor: onSelectRange ? "pointer" : "default" }}
+            onClick={() => onSelectRange?.({ start: o.start, end: o.end })}
+          >
+            <title>
+              ORF {o.start}–{o.end} ({o.strand === 1 ? "+" : "−"}) · {o.protein.length} aa
+            </title>
+          </path>
+        );
+      })}
+
+      {/* primers (overlay, just inside the backbone) */}
+      {primers.map((p) => (
+        <path
+          key={`primer-${p.id}`}
+          d={directedArcPath(
+            CX,
+            CY,
+            R_PRIMER - THIN_W / 2,
+            R_PRIMER + THIN_W / 2,
+            p.bindStart,
+            p.bindEnd,
+            length,
+            p.strand,
+          )}
+          fill={TYPE_COLORS.primer}
+          opacity={0.95}
+          style={{ cursor: onSelectRange ? "pointer" : "default" }}
+          onClick={() => onSelectRange?.({ start: p.bindStart, end: p.bindEnd })}
+        >
+          <title>
+            {p.name} · Tm {p.tm}°C · {p.strand === 1 ? "+" : "−"}
+          </title>
+        </path>
+      ))}
 
       {/* features */}
       {record.features.map((f) => {

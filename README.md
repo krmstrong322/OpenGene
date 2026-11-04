@@ -57,6 +57,12 @@ Open the app and click **Load demo**.
   origin-wrapping features
 - **Editing** — insert / delete / mutate / replace / reverse-complement, with
   correct feature-coordinate maintenance and circular boundary wrap-around
+- **Undo / redo** — every edit is reversible (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z);
+  the full record state steps back and forth, and a rejected edit is a no-op
+- **Feature editing** — edit an existing feature's name, type, strand,
+  coordinates, and color inline (not just add / delete)
+- **Map overlays** — toggle designed primers and 6-frame ORFs as directional
+  tracks on both the circular and linear maps
 - **ORF detection** across all 6 reading frames (including origin-crossing ORFs)
 - **Restriction** — cut-site mapping, digest fragment sizes, unique cutters (NEB set)
 - **Primers** — Tm / GC / hairpin / dimer analysis and PCR primer-pair design (primer3)

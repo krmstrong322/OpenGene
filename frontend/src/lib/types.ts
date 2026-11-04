@@ -56,6 +56,8 @@ export interface PlasmidRecord {
   history: HistoryEvent[];
   createdAt: number; // unix seconds
   updatedAt: number; // unix seconds, last saved change of any kind
+  canUndo?: boolean; // server-reported: an undo step is available
+  canRedo?: boolean;
 }
 
 // A saved plasmid in the library listing (no sequence).

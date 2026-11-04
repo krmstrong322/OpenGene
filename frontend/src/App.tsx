@@ -6,7 +6,7 @@ import { RecordLibrary } from "./components/RecordLibrary";
 import { SequenceViewer } from "./components/SequenceViewer";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
-import type { CutSite, Feature, PlasmidRecord, Selection } from "./lib/types";
+import type { CutSite, Feature, ORF, PlasmidRecord, Selection } from "./lib/types";
 
 const DEMO_SEQ =
   "TAATACGACTCACTATAGGGAATTGTGAGCGGATAACAATTCCCCTCTAGAAATAATTTTGTTTAACTTTAAGAAGGAGATATACAT" +
@@ -29,6 +29,11 @@ export default function App() {
   const [enzymeInput, setEnzymeInput] = useState("EcoRI, HindIII, BamHI, XhoI, NdeI");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("connecting…");
+  // Map overlay tracks shared across the circular and linear views.
+  const [orfs, setOrfs] = useState<ORF[]>([]);
+  const [minOrfAa, setMinOrfAa] = useState(50);
+  const [showOrfs, setShowOrfs] = useState(false);
+  const [showPrimers, setShowPrimers] = useState(true);
 
   useEffect(() => {
     api
@@ -36,6 +41,64 @@ export default function App() {
       .then((h) => setStatus(`backend ${h.version}`))
       .catch(() => setStatus("backend offline"));
   }, []);
+
+  // Keep ORF overlay in sync with the sequence while it's shown.
+  useEffect(() => {
+    if (!record || !showOrfs) {
+      setOrfs([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .orfs(record.id, minOrfAa)
+      .then((o) => !cancelled && setOrfs(o))
+      .catch(() => !cancelled && setOrfs([]));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record?.id, record?.sequence, showOrfs, minOrfAa]);
+
+  const undo = useCallback(async () => {
+    if (!record?.canUndo) return;
+    try {
+      setRecord(await api.undo(record.id));
+      setSelection(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [record]);
+
+  const redo = useCallback(async () => {
+    if (!record?.canRedo) return;
+    try {
+      setRecord(await api.redo(record.id));
+      setSelection(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [record]);
+
+  // Cmd/Ctrl+Z to undo, Cmd/Ctrl+Shift+Z or Ctrl+Y to redo — but not while a
+  // text field is focused, where the browser's own undo should win.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        void undo();
+      } else if ((key === "z" && e.shiftKey) || key === "y") {
+        e.preventDefault();
+        void redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   const selectFeature = useCallback((f: Feature) => {
     setSelection({ start: f.start, end: f.end, featureId: f.id });
@@ -95,6 +158,8 @@ export default function App() {
           setRecord(null);
           setSelection(null);
         }}
+        onUndo={undo}
+        onRedo={redo}
       />
       {error && (
         <div className="error-bar" onClick={() => setError(null)}>
@@ -115,6 +180,36 @@ export default function App() {
       ) : (
         <div className="workspace">
           <div className="maps">
+            <div className="map-controls">
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={showPrimers}
+                  onChange={(e) => setShowPrimers(e.target.checked)}
+                />
+                Primers ({record.primers.length})
+              </label>
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={showOrfs}
+                  onChange={(e) => setShowOrfs(e.target.checked)}
+                />
+                ORFs{showOrfs ? ` (${orfs.length})` : ""}
+              </label>
+              {showOrfs && (
+                <label className="inline">
+                  min aa
+                  <input
+                    type="number"
+                    className="mini"
+                    value={minOrfAa}
+                    min={1}
+                    onChange={(e) => setMinOrfAa(Math.max(1, Number(e.target.value)))}
+                  />
+                </label>
+              )}
+            </div>
             <div className="card">
               <CircularMap
                 record={record}
@@ -123,6 +218,9 @@ export default function App() {
                 onSelectFeature={selectFeature}
                 onHover={setHoveredId}
                 hoveredId={hoveredId}
+                primers={showPrimers ? record.primers : []}
+                orfs={showOrfs ? orfs : []}
+                onSelectRange={setSelection}
               />
             </div>
             <div className="card">
@@ -134,6 +232,9 @@ export default function App() {
                 onSelectFeature={selectFeature}
                 onHover={setHoveredId}
                 hoveredId={hoveredId}
+                primers={showPrimers ? record.primers : []}
+                orfs={showOrfs ? orfs : []}
+                onSelectRange={setSelection}
               />
             </div>
             <div className="card">

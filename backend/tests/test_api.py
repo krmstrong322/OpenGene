@@ -131,6 +131,107 @@ def test_404_on_missing_record(client):
     assert r.status_code == 404
 
 
+# --- undo / redo ---------------------------------------------------------
+
+def test_undo_redo_roundtrip(client):
+    rec = _create(client, seq="AAAATTTT")
+    rid = rec["id"]
+    assert rec["canUndo"] is False and rec["canRedo"] is False
+
+    r = client.post(f"/records/{rid}/insert", json={"position": 4, "sequence": "GG"}).json()
+    assert r["sequence"] == "AAAAGGTTTT"
+    assert r["canUndo"] is True and r["canRedo"] is False
+
+    r = client.post(f"/records/{rid}/undo").json()
+    assert r["sequence"] == "AAAATTTT"
+    assert r["canUndo"] is False and r["canRedo"] is True
+
+    r = client.post(f"/records/{rid}/redo").json()
+    assert r["sequence"] == "AAAAGGTTTT"
+    assert r["canUndo"] is True and r["canRedo"] is False
+
+
+def test_undo_with_nothing_to_undo_is_409(client):
+    rec = _create(client, seq="ATGC")
+    r = client.post(f"/records/{rec['id']}/undo")
+    assert r.status_code == 409
+
+
+def test_a_new_edit_clears_the_redo_stack(client):
+    rec = _create(client, seq="AAAATTTT")
+    rid = rec["id"]
+    client.post(f"/records/{rid}/insert", json={"position": 0, "sequence": "C"})
+    client.post(f"/records/{rid}/undo")  # redo now available
+    r = client.post(f"/records/{rid}/mutate", json={"position": 0, "base": "G"}).json()
+    assert r["canRedo"] is False
+    assert client.post(f"/records/{rid}/redo").status_code == 409
+
+
+def test_failed_edit_leaves_no_undo_point(client):
+    # A rejected edit (invalid base) must not push a dead undo entry.
+    rec = _create(client, seq="ATGC")
+    rid = rec["id"]
+    bad = client.post(f"/records/{rid}/insert", json={"position": 0, "sequence": "X"})
+    assert bad.status_code == 422
+    assert client.get(f"/records/{rid}").json()["canUndo"] is False
+
+
+def test_undo_restores_features_and_history(client):
+    rec = _create(client, seq="AAAA" + "TAATACGACTCACTATAG" + "GGGG", circular=False)
+    rid = rec["id"]
+    annotated = client.post(f"/records/{rid}/annotate", json={}).json()["record"]
+    assert len(annotated["features"]) >= 1
+    undone = client.post(f"/records/{rid}/undo").json()
+    assert undone["features"] == []
+
+
+# --- feature update ------------------------------------------------------
+
+def test_update_feature_fields(client):
+    rec = _create(client, seq="ATGGCAGCTACGTACGTAGC")
+    rid = rec["id"]
+    feat = {"name": "old", "type": "CDS", "start": 0, "end": 3, "strand": 1}
+    fid = client.post(f"/records/{rid}/features", json=feat).json()["features"][0]["id"]
+    r = client.patch(
+        f"/records/{rid}/features/{fid}",
+        json={"name": "new", "strand": -1, "end": 6, "color": "#abcdef"},
+    )
+    assert r.status_code == 200
+    f = r.json()["features"][0]
+    assert f["name"] == "new" and f["strand"] == -1 and f["end"] == 6
+    assert f["color"] == "#abcdef" and f["start"] == 0  # unchanged
+    assert f["id"] == fid  # identity preserved
+
+
+def test_update_feature_out_of_bounds_is_422(client):
+    rec = _create(client, seq="ATGC")
+    rid = rec["id"]
+    fid = client.post(
+        f"/records/{rid}/features",
+        json={"name": "f", "type": "misc_feature", "start": 0, "end": 3, "strand": 1},
+    ).json()["features"][0]["id"]
+    r = client.patch(f"/records/{rid}/features/{fid}", json={"end": 99})
+    assert r.status_code == 422
+
+
+def test_update_missing_feature_is_404(client):
+    rec = _create(client, seq="ATGC")
+    r = client.patch(f"/records/{rec['id']}/features/nope", json={"name": "x"})
+    assert r.status_code == 404
+
+
+def test_update_feature_is_undoable(client):
+    rec = _create(client, seq="ATGGCAGCTACGT")
+    rid = rec["id"]
+    fid = client.post(
+        f"/records/{rid}/features",
+        json={"name": "orig", "type": "CDS", "start": 0, "end": 3, "strand": 1},
+    ).json()["features"][0]["id"]
+    client.patch(f"/records/{rid}/features/{fid}", json={"name": "renamed"})
+    undone = client.post(f"/records/{rid}/undo").json()
+    assert undone["features"][0]["name"] == "orig"
+
+
 def test_export_unicode_name(client):
     # PR #1 review: a non-Latin-1 name used to crash the export with HTTP 500.
     rec = client.post("/records", json={"name": "ΔGFP/v2", "sequence": "ATGC"}).json()

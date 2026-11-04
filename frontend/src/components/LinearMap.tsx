@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { CutSite, Feature, PlasmidRecord, Selection } from "../lib/types";
+import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { TYPE_COLORS } from "../lib/types";
 
 interface Props {
@@ -9,12 +9,32 @@ interface Props {
   onSelectFeature: (f: Feature) => void;
   onHover: (featureId: string | null) => void;
   hoveredId: string | null;
+  primers?: Primer[];
+  orfs?: ORF[];
+  onSelectRange?: (sel: Selection) => void;
 }
 
 const H = 150;
 const PAD = 40;
 const TRACK_Y = 60;
 const TRACK_H = 16;
+const THIN_H = 9; // overlay (primer / ORF) track height
+
+// Greedy lane packing for arbitrary [start,end] spans (wrap clipped to end).
+function stackSpans(spans: [number, number][], length: number): number[] {
+  const laneEnds: number[] = [];
+  return spans.map(([start, rawEnd]) => {
+    const end = rawEnd >= start ? rawEnd : length;
+    let lane = laneEnds.findIndex((e) => start >= e);
+    if (lane === -1) {
+      laneEnds.push(end);
+      lane = laneEnds.length - 1;
+    } else {
+      laneEnds[lane] = end;
+    }
+    return lane;
+  });
+}
 
 // Stack overlapping features into lanes.
 function assignLanes(features: Feature[], length: number): Map<string, number> {
@@ -43,6 +63,9 @@ export function LinearMap({
   onSelectFeature,
   onHover,
   hoveredId,
+  primers = [],
+  orfs = [],
+  onSelectRange,
 }: Props) {
   const length = record.length || 1;
   const width = 900;
@@ -50,7 +73,22 @@ export function LinearMap({
   const x = (base: number) => PAD + (base / length) * usable;
   const laneOf = useMemo(() => assignLanes(record.features, length), [record.features, length]);
   const laneCount = Math.max(1, ...Array.from(laneOf.values()).map((l) => l + 1));
-  const totalH = TRACK_Y + TRACK_H + laneCount * (TRACK_H + 6) + 30;
+
+  // Overlay bands sit below the feature lanes.
+  const featuresBottom = TRACK_Y + 20 + laneCount * (TRACK_H + 6);
+  const primerLanes = useMemo(
+    () => stackSpans(primers.map((p) => [p.bindStart, p.bindEnd]), length),
+    [primers, length],
+  );
+  const orfLanes = useMemo(
+    () => stackSpans(orfs.map((o) => [o.start, o.end]), length),
+    [orfs, length],
+  );
+  const primerRows = primers.length ? Math.max(0, ...primerLanes) + 1 : 0;
+  const orfRows = orfs.length ? Math.max(0, ...orfLanes) + 1 : 0;
+  const primerBandY = featuresBottom + (primerRows ? 10 : 0);
+  const orfBandY = primerBandY + primerRows * (THIN_H + 3) + (orfRows ? 10 : 0);
+  const totalH = orfBandY + orfRows * (THIN_H + 3) + 20;
 
   const ticks = useMemo(() => {
     const step = niceStep(length);
@@ -171,6 +209,73 @@ export function LinearMap({
             </text>
             <title>
               {f.name} ({f.start}–{f.end}, {f.strand === 1 ? "+" : "−"})
+            </title>
+          </g>
+        );
+      })}
+
+      {/* primer overlay band */}
+      {primers.length > 0 && (
+        <text x={PAD} y={primerBandY - 2} fontSize={9} fill="#9C27B0">
+          primers
+        </text>
+      )}
+      {primers.map((p, i) => {
+        const y = primerBandY + primerLanes[i] * (THIN_H + 3);
+        const wraps = p.bindEnd < p.bindStart;
+        const segs: [number, number][] = wraps
+          ? [[p.bindStart, length], [0, p.bindEnd]]
+          : [[p.bindStart, p.bindEnd]];
+        return (
+          <g
+            key={`primer-${p.id}`}
+            style={{ cursor: onSelectRange ? "pointer" : "default" }}
+            onClick={() => onSelectRange?.({ start: p.bindStart, end: p.bindEnd })}
+          >
+            {segs.map(([s, e], si) => (
+              <path
+                key={si}
+                d={arrowRect(x(s), x(e), y, THIN_H, p.strand)}
+                fill={TYPE_COLORS.primer}
+                stroke="white"
+                strokeWidth={0.4}
+              />
+            ))}
+            <title>
+              {p.name} · Tm {p.tm}°C · {p.strand === 1 ? "+" : "−"}
+            </title>
+          </g>
+        );
+      })}
+
+      {/* ORF overlay band */}
+      {orfs.length > 0 && (
+        <text x={PAD} y={orfBandY - 2} fontSize={9} fill="#607d8b">
+          ORFs
+        </text>
+      )}
+      {orfs.map((o, i) => {
+        const y = orfBandY + orfLanes[i] * (THIN_H + 3);
+        const wraps = o.end < o.start;
+        const segs: [number, number][] = wraps
+          ? [[o.start, length], [0, o.end]]
+          : [[o.start, o.end]];
+        return (
+          <g
+            key={`orf-${i}`}
+            style={{ cursor: onSelectRange ? "pointer" : "default" }}
+            onClick={() => onSelectRange?.({ start: o.start, end: o.end })}
+          >
+            {segs.map(([s, e], si) => (
+              <path
+                key={si}
+                d={arrowRect(x(s), x(e), y, THIN_H, o.strand)}
+                fill="#78909c"
+                opacity={0.6}
+              />
+            ))}
+            <title>
+              ORF {o.start}–{o.end} ({o.strand === 1 ? "+" : "−"}) · {o.protein.length} aa
             </title>
           </g>
         );

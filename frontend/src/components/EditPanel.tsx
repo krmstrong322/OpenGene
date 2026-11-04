@@ -1,6 +1,26 @@
 import { useState } from "react";
 import { api } from "../lib/api";
-import type { CutSite, FramePolicy, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
+import type {
+  CutSite,
+  Feature,
+  FeatureType,
+  FramePolicy,
+  ORF,
+  PlasmidRecord,
+  Primer,
+  Selection,
+} from "../lib/types";
+
+const FEATURE_TYPES: FeatureType[] = [
+  "promoter",
+  "CDS",
+  "terminator",
+  "origin",
+  "primer",
+  "tag",
+  "RBS",
+  "misc_feature",
+];
 
 interface Props {
   record: PlasmidRecord;
@@ -190,6 +210,7 @@ function FeaturesTab({ record, onRecordChange, onSelectFeature, onError }: Props
   const [type, setType] = useState("misc_feature");
   const [selStart, setSelStart] = useState(0);
   const [selEnd, setSelEnd] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const annotate = async () => {
     setAnnotating(true);
@@ -258,41 +279,164 @@ function FeaturesTab({ record, onRecordChange, onSelectFeature, onError }: Props
         <h4>Features ({record.features.length})</h4>
         <ul className="feature-list">
           {record.features.map((f) => (
-            <li key={f.id}>
-              <button className="link" onClick={() => onSelectFeature(f.id)}>
-                <span className="swatch" style={{ background: f.color || "#9E9E9E" }} />
-                {f.name}
-              </button>
-              <span className="muted">
-                {f.start}–{f.end} {f.strand === 1 ? "+" : "−"}
-                {f.notes?.auto === "true" && f.notes?.identity && (
-                  <span
-                    className="match-quality"
-                    title={`auto-annotated · ${f.notes.identity} identity · ${f.notes.coverage} coverage`}
-                  >
-                    {f.notes.exact === "true"
-                      ? "exact"
-                      : `${f.notes.identity}·${f.notes.coverage}`}
-                  </span>
-                )}
-              </span>
-              <button
-                className="x"
-                title="delete"
-                onClick={async () => {
-                  try {
-                    onRecordChange(await api.deleteFeature(record.id, f.id));
-                  } catch (e) {
-                    onError((e as Error).message);
-                  }
-                }}
-              >
-                ×
-              </button>
+            <li key={f.id} className={editingId === f.id ? "editing" : undefined}>
+              <div className="feature-row">
+                <button className="link" onClick={() => onSelectFeature(f.id)}>
+                  <span className="swatch" style={{ background: f.color || "#9E9E9E" }} />
+                  {f.name}
+                </button>
+                <span className="muted">
+                  {f.start}–{f.end} {f.strand === 1 ? "+" : "−"}
+                  {f.notes?.auto === "true" && f.notes?.identity && (
+                    <span
+                      className="match-quality"
+                      title={`auto-annotated · ${f.notes.identity} identity · ${f.notes.coverage} coverage`}
+                    >
+                      {f.notes.exact === "true"
+                        ? "exact"
+                        : `${f.notes.identity}·${f.notes.coverage}`}
+                    </span>
+                  )}
+                </span>
+                <button
+                  className="x"
+                  title={editingId === f.id ? "close editor" : "edit"}
+                  onClick={() => setEditingId(editingId === f.id ? null : f.id)}
+                >
+                  ✎
+                </button>
+                <button
+                  className="x"
+                  title="delete"
+                  onClick={async () => {
+                    try {
+                      onRecordChange(await api.deleteFeature(record.id, f.id));
+                    } catch (e) {
+                      onError((e as Error).message);
+                    }
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              {editingId === f.id && (
+                <FeatureEditor
+                  record={record}
+                  feature={f}
+                  onDone={() => setEditingId(null)}
+                  onRecordChange={onRecordChange}
+                  onError={onError}
+                />
+              )}
             </li>
           ))}
         </ul>
       </section>
+    </div>
+  );
+}
+
+function FeatureEditor({
+  record,
+  feature,
+  onDone,
+  onRecordChange,
+  onError,
+}: {
+  record: PlasmidRecord;
+  feature: Feature;
+  onDone: () => void;
+  onRecordChange: (r: PlasmidRecord) => void;
+  onError: (m: string) => void;
+}) {
+  const [name, setName] = useState(feature.name);
+  const [type, setType] = useState<FeatureType>(feature.type);
+  const [strand, setStrand] = useState<number>(feature.strand);
+  const [start, setStart] = useState(feature.start);
+  const [end, setEnd] = useState(feature.end);
+  const [color, setColor] = useState(feature.color || "#9E9E9E");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const updated = await api.updateFeature(record.id, feature.id, {
+        name,
+        type,
+        strand: strand as 1 | -1,
+        start,
+        end,
+        color,
+      });
+      onRecordChange(updated);
+      onDone();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="feature-editor stack">
+      <label>
+        name
+        <input value={name} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <div className="row">
+        <label>
+          type
+          <select value={type} onChange={(e) => setType(e.target.value as FeatureType)}>
+            {FEATURE_TYPES.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          strand
+          <select value={strand} onChange={(e) => setStrand(Number(e.target.value))}>
+            <option value={1}>+</option>
+            <option value={-1}>−</option>
+          </select>
+        </label>
+      </div>
+      <div className="row">
+        <label>
+          start
+          <input
+            type="number"
+            value={start}
+            min={0}
+            max={record.length}
+            onChange={(e) => setStart(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          end
+          <input
+            type="number"
+            value={end}
+            min={0}
+            max={record.length}
+            onChange={(e) => setEnd(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          color
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+        </label>
+      </div>
+      {record.isCircular && end < start && (
+        <p className="muted small">end &lt; start: this feature wraps the origin.</p>
+      )}
+      <div className="row">
+        <button onClick={save} disabled={saving || !name}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button className="link" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CircularMap } from "./components/CircularMap";
 import { EditPanel } from "./components/EditPanel";
 import { LinearMap } from "./components/LinearMap";
@@ -6,7 +6,8 @@ import { RecordLibrary } from "./components/RecordLibrary";
 import { SequenceViewer } from "./components/SequenceViewer";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
-import type { CutSite, Feature, PlasmidRecord, Selection } from "./lib/types";
+import { normalizeSpan } from "./lib/selection";
+import type { CutSite, Feature, ORF, PlasmidRecord, Selection } from "./lib/types";
 
 const DEMO_SEQ =
   "TAATACGACTCACTATAGGGAATTGTGAGCGGATAACAATTCCCCTCTAGAAATAATTTTGTTTAACTTTAAGAAGGAGATATACAT" +
@@ -29,6 +30,11 @@ export default function App() {
   const [enzymeInput, setEnzymeInput] = useState("EcoRI, HindIII, BamHI, XhoI, NdeI");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("connecting…");
+  // Map overlay tracks shared across the circular and linear views.
+  const [orfs, setOrfs] = useState<ORF[]>([]);
+  const [minOrfAa, setMinOrfAa] = useState(50);
+  const [showOrfs, setShowOrfs] = useState(false);
+  const [showPrimers, setShowPrimers] = useState(true);
 
   useEffect(() => {
     api
@@ -37,9 +43,127 @@ export default function App() {
       .catch(() => setStatus("backend offline"));
   }, []);
 
-  const selectFeature = useCallback((f: Feature) => {
-    setSelection({ start: f.start, end: f.end, featureId: f.id });
-  }, []);
+  // Keep ORF overlay in sync with the sequence while it's shown. Clear the old
+  // list immediately on any change so stale coordinates can't be clicked while
+  // the refetch is in flight; the normalized results replace it when they land.
+  useEffect(() => {
+    setOrfs([]);
+    if (!record || !showOrfs) return;
+    let cancelled = false;
+    const n = record.length;
+    const circular = record.isCircular;
+    api
+      .orfs(record.id, minOrfAa)
+      .then((list) => {
+        if (cancelled) return;
+        // Endpoints come back modulo n; normalize full-record and terminal
+        // linear spans so each track draws and selects the right bases.
+        setOrfs(
+          list.map((o) => ({ ...o, ...normalizeSpan(o.start, o.end, n, circular, o.length_bp) })),
+        );
+      })
+      .catch(() => !cancelled && setOrfs([]));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record?.id, record?.sequence, showOrfs, minOrfAa]);
+
+  // Primer overlay spans, with terminal linear endpoints normalized the same
+  // way (the record's primers are the source of truth; the backend drops any
+  // that a sequence edit would make stale).
+  const displayPrimers = useMemo(() => {
+    if (!record) return [];
+    return record.primers.map((p) => {
+      const s = normalizeSpan(p.bindStart, p.bindEnd, record.length, record.isCircular);
+      return { ...p, bindStart: s.start, bindEnd: s.end };
+    });
+  }, [record]);
+
+  const undo = useCallback(async () => {
+    if (!record?.canUndo) return;
+    try {
+      setRecord(await api.undo(record.id));
+      setSelection(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [record]);
+
+  const redo = useCallback(async () => {
+    if (!record?.canRedo) return;
+    try {
+      setRecord(await api.redo(record.id));
+      setSelection(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [record]);
+
+  // Cmd/Ctrl+Z to undo, Cmd/Ctrl+Shift+Z or Ctrl+Y to redo — but not while a
+  // text field is focused, where the browser's own undo should win.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        void undo();
+      } else if ((key === "z" && e.shiftKey) || key === "y") {
+        e.preventDefault();
+        void redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+
+  const selectFeature = useCallback(
+    (f: Feature) => {
+      setSelection({
+        start: f.start,
+        end: f.end,
+        featureId: f.id,
+        wrap: record?.isCircular ? f.end < f.start : false,
+      });
+    },
+    [record?.isCircular],
+  );
+
+  // Select a span from a map overlay (primer / ORF), flagging an
+  // origin-wrapping span so edits and highlights treat it correctly.
+  const selectRange = useCallback(
+    (sel: Selection) => {
+      setSelection({
+        ...sel,
+        wrap: record?.isCircular ? sel.end < sel.start : false,
+      });
+    },
+    [record?.isCircular],
+  );
+
+  // Keep a feature-anchored selection in sync with its feature. When the record
+  // changes (an edit to the feature's coordinates, or undo/redo) the selection
+  // follows the feature's new span, or clears if the feature was removed — so
+  // the highlight and Delete/Replace never target the feature's old range.
+  useEffect(() => {
+    if (!record || !selection?.featureId) return;
+    const f = record.features.find((x) => x.id === selection.featureId);
+    if (!f) {
+      setSelection(null);
+    } else if (f.start !== selection.start || f.end !== selection.end) {
+      setSelection({
+        start: f.start,
+        end: f.end,
+        featureId: f.id,
+        wrap: record.isCircular ? f.end < f.start : false,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record]);
 
   const selectFeatureById = useCallback(
     (id: string) => {
@@ -95,6 +219,8 @@ export default function App() {
           setRecord(null);
           setSelection(null);
         }}
+        onUndo={undo}
+        onRedo={redo}
       />
       {error && (
         <div className="error-bar" onClick={() => setError(null)}>
@@ -115,6 +241,36 @@ export default function App() {
       ) : (
         <div className="workspace">
           <div className="maps">
+            <div className="map-controls">
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={showPrimers}
+                  onChange={(e) => setShowPrimers(e.target.checked)}
+                />
+                Primers ({record.primers.length})
+              </label>
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={showOrfs}
+                  onChange={(e) => setShowOrfs(e.target.checked)}
+                />
+                ORFs{showOrfs ? ` (${orfs.length})` : ""}
+              </label>
+              {showOrfs && (
+                <label className="inline">
+                  min aa
+                  <input
+                    type="number"
+                    className="mini"
+                    value={minOrfAa}
+                    min={1}
+                    onChange={(e) => setMinOrfAa(Math.max(1, Number(e.target.value)))}
+                  />
+                </label>
+              )}
+            </div>
             <div className="card">
               <CircularMap
                 record={record}
@@ -123,6 +279,9 @@ export default function App() {
                 onSelectFeature={selectFeature}
                 onHover={setHoveredId}
                 hoveredId={hoveredId}
+                primers={showPrimers ? displayPrimers : []}
+                orfs={showOrfs ? orfs : []}
+                onSelectRange={selectRange}
               />
             </div>
             <div className="card">
@@ -134,6 +293,9 @@ export default function App() {
                 onSelectFeature={selectFeature}
                 onHover={setHoveredId}
                 hoveredId={hoveredId}
+                primers={showPrimers ? displayPrimers : []}
+                orfs={showOrfs ? orfs : []}
+                onSelectRange={selectRange}
               />
             </div>
             <div className="card">

@@ -1,11 +1,12 @@
 import { useMemo } from "react";
-import type { CutSite, Feature, PlasmidRecord, Selection } from "../lib/types";
+import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { TYPE_COLORS } from "../lib/types";
 import {
   arcPath,
   baseToAngle,
   directedArcPath,
   polar,
+  stackSpans,
   tick,
 } from "../lib/geometry";
 
@@ -16,6 +17,9 @@ interface Props {
   onSelectFeature: (f: Feature) => void;
   onHover: (featureId: string | null) => void;
   hoveredId: string | null;
+  primers?: Primer[];
+  orfs?: ORF[];
+  onSelectRange?: (sel: Selection) => void;
 }
 
 const SIZE = 560;
@@ -23,6 +27,12 @@ const CX = SIZE / 2;
 const CY = SIZE / 2;
 const R_BACKBONE = 190;
 const RING_W = 22;
+// Overlay tracks: primers hug the backbone just inside it; ORFs sit on two
+// thin rings (one per strand) placed inside whatever feature rings are in use
+// (computed per-render), with a floor so they stay on-canvas.
+const R_PRIMER = R_BACKBONE - 1;
+const THIN_W = 7;
+const R_ORF_MIN = 30;
 
 // Assign features to stacked rings so overlapping features don't collide.
 function assignRings(features: Feature[], length: number): Map<string, number> {
@@ -58,11 +68,31 @@ export function CircularMap({
   onSelectFeature,
   onHover,
   hoveredId,
+  primers = [],
+  orfs = [],
+  onSelectRange,
 }: Props) {
   const length = record.length || 1;
   const ringOf = useMemo(
     () => assignRings(record.features, length),
     [record.features, length],
+  );
+
+  // Place the ORF rings inside the innermost feature ring actually allocated,
+  // so a deeply-stacked feature can't render over (and steal clicks from) an
+  // ORF track sitting at a fixed radius.
+  const maxRing = record.features.length
+    ? Math.max(...Array.from(ringOf.values()))
+    : -1;
+  const featuresInner =
+    R_BACKBONE - 6 - maxRing * (RING_W + 4) - (maxRing >= 0 ? RING_W : 0);
+  const rOrfTop = Math.max(R_ORF_MIN, featuresInner - 12);
+  // Stack overlapping ORFs onto successive inner rings (segment-aware, so a
+  // wrapping ORF can't cover another near the origin), with a floor so deep
+  // stacks stay on-canvas.
+  const orfLane = useMemo(
+    () => stackSpans(orfs.map((o) => [o.start, o.end]), length),
+    [orfs, length],
   );
 
   const tickBases = useMemo(() => {
@@ -142,6 +172,50 @@ export function CircularMap({
           opacity={0.7}
         />
       )}
+
+      {/* ORFs (overlay, behind features) */}
+      {orfs.map((o, i) => {
+        const r = Math.max(R_ORF_MIN, rOrfTop - orfLane[i] * (THIN_W + 3));
+        return (
+          <path
+            key={`orf-${i}`}
+            d={directedArcPath(CX, CY, r - THIN_W / 2, r + THIN_W / 2, o.start, o.end, length, o.strand)}
+            fill="#78909c"
+            opacity={0.5}
+            style={{ cursor: onSelectRange ? "pointer" : "default" }}
+            onClick={() => onSelectRange?.({ start: o.start, end: o.end })}
+          >
+            <title>
+              ORF {o.start}–{o.end} ({o.strand === 1 ? "+" : "−"}) · {o.protein.length} aa
+            </title>
+          </path>
+        );
+      })}
+
+      {/* primers (overlay, just inside the backbone) */}
+      {primers.map((p) => (
+        <path
+          key={`primer-${p.id}`}
+          d={directedArcPath(
+            CX,
+            CY,
+            R_PRIMER - THIN_W / 2,
+            R_PRIMER + THIN_W / 2,
+            p.bindStart,
+            p.bindEnd,
+            length,
+            p.strand,
+          )}
+          fill={TYPE_COLORS.primer}
+          opacity={0.95}
+          style={{ cursor: onSelectRange ? "pointer" : "default" }}
+          onClick={() => onSelectRange?.({ start: p.bindStart, end: p.bindEnd })}
+        >
+          <title>
+            {p.name} · Tm {p.tm}°C · {p.strand === 1 ? "+" : "−"}
+          </title>
+        </path>
+      ))}
 
       {/* features */}
       {record.features.map((f) => {

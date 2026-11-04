@@ -268,10 +268,39 @@ h4 {
 }
 .feature-list li {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.feature-list li.editing {
+  padding: 6px;
+  border: 1px solid var(--border, #cfd8dc);
+  border-radius: 6px;
+}
+.feature-row {
+  display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
   justify-content: space-between;
+}
+.feature-editor {
+  padding-top: 2px;
+}
+.feature-editor input[type="color"] {
+  padding: 0;
+  height: 28px;
+  width: 42px;
+}
+.map-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 4px 2px;
+  font-size: 13px;
+}
+.map-controls .mini {
+  width: 56px;
 }
 .feature-list code {
   font-size: 11px;

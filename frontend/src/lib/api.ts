@@ -104,6 +104,9 @@ export const api = {
   reverseComplement: (id: string) =>
     req<PlasmidRecord>(`/records/${id}/reverse_complement`, { method: "POST" }),
 
+  undo: (id: string) => req<PlasmidRecord>(`/records/${id}/undo`, { method: "POST" }),
+  redo: (id: string) => req<PlasmidRecord>(`/records/${id}/redo`, { method: "POST" }),
+
   orfs: (id: string, minAa = 30) => req<ORF[]>(`/records/${id}/orfs?min_aa=${minAa}`),
 
   cutSites: (id: string, enzymes?: string[]) =>
@@ -154,6 +157,16 @@ export const api = {
     req<PlasmidRecord>(`/records/${id}/features`, {
       method: "POST",
       body: JSON.stringify(feature),
+    }),
+
+  updateFeature: (
+    id: string,
+    featureId: string,
+    patch: Partial<Pick<Feature, "name" | "type" | "start" | "end" | "strand" | "color">>,
+  ) =>
+    req<PlasmidRecord>(`/records/${id}/features/${featureId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
     }),
 
   deleteFeature: (id: string, featureId: string) =>

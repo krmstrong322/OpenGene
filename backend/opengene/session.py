@@ -22,12 +22,29 @@ from threading import RLock
 from .models import PlasmidRecord
 
 
+# How many undo steps to retain per record. Snapshots are full record JSON;
+# plasmids are small (a few kb), so a generous depth is cheap.
+UNDO_DEPTH = 50
+
+
 class SessionStore:
     def __init__(self, db_path: str | None = None) -> None:
         self._records: dict[str, PlasmidRecord] = {}
         self._lock = RLock()
         self._db_path = db_path
         self._conn: sqlite3.Connection | None = None
+        # Per-record undo/redo stacks of serialized snapshots. In-memory only
+        # (not mirrored to SQLite): undo history does not survive a restart,
+        # which is an accepted limitation.
+        self._undo: dict[str, list[str]] = {}
+        self._redo: dict[str, list[str]] = {}
+        # Per-record transaction locks. A whole edit (read the shared record,
+        # snapshot its pre-state, mutate it, commit) must be atomic against
+        # other edits of the same record; the sync endpoints can otherwise run
+        # concurrently in the threadpool and interleave, so that one edit's
+        # commit stores a snapshot taken before another's mutation and undo
+        # then rolls back more than its own change.
+        self._rec_locks: dict[str, RLock] = {}
         if db_path:
             self._init_db()
             self._load_all()
@@ -110,6 +127,9 @@ class SessionStore:
     def delete(self, record_id: str) -> None:
         with self._lock:
             self._records.pop(record_id, None)
+            self._undo.pop(record_id, None)
+            self._redo.pop(record_id, None)
+            self._rec_locks.pop(record_id, None)
             if self._conn:
                 self._conn.execute("DELETE FROM records WHERE id = ?", (record_id,))
                 self._conn.commit()
@@ -117,9 +137,76 @@ class SessionStore:
     def clear(self) -> None:
         with self._lock:
             self._records.clear()
+            self._undo.clear()
+            self._redo.clear()
+            self._rec_locks.clear()
             if self._conn:
                 self._conn.execute("DELETE FROM records")
                 self._conn.commit()
+
+    # -- undo / redo ------------------------------------------------------
+    #
+    # A caller serializes the record's pre-edit state, applies the edit, and —
+    # only if it succeeds — calls ``commit`` with that pre-state. ``commit``
+    # pushes it onto the undo stack, clears the redo stack (a new edit
+    # invalidates any redo future), and saves. A failed edit therefore leaves
+    # no dead undo entry. ``undo`` then moves the current state onto the redo
+    # stack and restores the top of the undo stack; ``redo`` is the mirror.
+
+    def record_lock(self, record_id: str) -> RLock:
+        """A per-record re-entrant lock. Callers hold it across a whole edit
+        (snapshot → mutate → commit) and across undo/redo, so concurrent edits
+        of the same record are serialized rather than interleaved."""
+        with self._lock:
+            lk = self._rec_locks.get(record_id)
+            if lk is None:
+                lk = RLock()
+                self._rec_locks[record_id] = lk
+            return lk
+
+    def commit(self, record: PlasmidRecord, pre_state: str) -> PlasmidRecord:
+        """Record ``pre_state`` as an undo point and persist the edited record."""
+        with self._lock:
+            stack = self._undo.setdefault(record.id, [])
+            stack.append(pre_state)
+            if len(stack) > UNDO_DEPTH:
+                del stack[0]
+            self._redo.pop(record.id, None)
+        return self.save(record)
+
+    def can_undo(self, record_id: str) -> bool:
+        return bool(self._undo.get(record_id))
+
+    def can_redo(self, record_id: str) -> bool:
+        return bool(self._redo.get(record_id))
+
+    def undo(self, record_id: str) -> PlasmidRecord:
+        return self._step(record_id, self._undo, self._redo)
+
+    def redo(self, record_id: str) -> PlasmidRecord:
+        return self._step(record_id, self._redo, self._undo)
+
+    def _step(
+        self,
+        record_id: str,
+        from_stack: dict[str, list[str]],
+        to_stack: dict[str, list[str]],
+    ) -> PlasmidRecord:
+        with self._lock:
+            if record_id not in self._records:
+                raise KeyError(record_id)
+            stack = from_stack.get(record_id)
+            if not stack:
+                raise IndexError("nothing to undo/redo")
+            to_stack.setdefault(record_id, []).append(
+                self._records[record_id].model_dump_json()
+            )
+            restored = PlasmidRecord.model_validate_json(stack.pop())
+            self._records[record_id] = restored
+        # Persist the restored state (updates the stored row + updated_at).
+        restored.updated_at = time.time()
+        self._persist(restored)
+        return restored
 
 
 def _default_store() -> SessionStore:

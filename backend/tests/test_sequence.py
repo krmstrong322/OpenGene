@@ -178,3 +178,52 @@ def test_frame_shift_detection_via_length_mod3():
     # A 3-bp insert preserves frame; a 1-bp insert breaks it.
     assert len("ATG") % 3 == 0
     assert len("A") % 3 != 0
+
+
+# --------------------------------------------------------------------------
+# Primer invalidation on edits (PR #5 review)
+# --------------------------------------------------------------------------
+
+from opengene.models import Primer
+
+
+def _rec_with_primers(seq="ACGT" * 20, circular=True):
+    rec = make_record(seq, circular=circular)
+    rec.primers = [
+        Primer(name="up", sequence="ACGT", bindStart=4, bindEnd=12, strand=1, tm=60, gcContent=50),
+        Primer(name="down", sequence="ACGT", bindStart=40, bindEnd=52, strand=1, tm=60, gcContent=50),
+    ]
+    return rec
+
+
+def test_insert_keeps_upstream_primer_drops_downstream():
+    rec = _rec_with_primers()
+    S.insert(rec, 20, "AAAA")  # between the two primers
+    names = {p.name for p in rec.primers}
+    assert names == {"up"}  # upstream kept (coords unchanged), downstream dropped
+    assert rec.primers[0].bind_start == 4 and rec.primers[0].bind_end == 12
+
+
+def test_delete_covering_primer_drops_it():
+    rec = _rec_with_primers()
+    S.delete(rec, 38, 56)  # covers the "down" primer's binding site
+    assert {p.name for p in rec.primers} == {"up"}
+
+
+def test_mutate_keeps_all_primers():
+    rec = _rec_with_primers()
+    S.mutate(rec, 44, "T")  # single base, no coordinate change
+    assert {p.name for p in rec.primers} == {"up", "down"}
+
+
+def test_reverse_complement_drops_primers_with_warning():
+    rec = _rec_with_primers()
+    S.reverse_complement_record(rec)
+    assert rec.primers == []
+    assert any("dropped primers" in w for w in rec.history[-1].warnings)
+
+
+def test_wrap_delete_drops_all_primers():
+    rec = _rec_with_primers()
+    S.delete(rec, 70, 2)  # wraps the origin
+    assert rec.primers == []

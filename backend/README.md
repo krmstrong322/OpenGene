@@ -69,6 +69,8 @@ POST   /records/{id}/delete          {start, end}   (start>end wraps origin)
 POST   /records/{id}/mutate          {position, base}
 POST   /records/{id}/replace         {start, end, sequence}
 POST   /records/{id}/reverse_complement
+POST   /records/{id}/undo            step back one edit
+POST   /records/{id}/redo            step forward again
 
 GET    /records/{id}/orfs?min_aa=
 GET    /records/{id}/cut_sites?enzymes=EcoRI,HindIII
@@ -80,12 +82,20 @@ POST   /records/{id}/design_primers  {region_start, region_end, target_tm}
 
 POST   /records/{id}/annotate        {replace_existing, min_identity, min_coverage}
 POST   /records/{id}/features        add a manual feature
+PATCH  /records/{id}/features/{fid}  edit name/type/strand/start/end/color
 DELETE /records/{id}/features/{fid}
 GET    /feature_library
 ```
 
 Coordinates are **0-indexed, half-open `[start, end)`**. A circular feature may
 wrap the origin, in which case `start > end`.
+
+Every mutating call records an undo point: the record JSON returned by these
+endpoints carries `canUndo` / `canRedo` flags, and `undo` / `redo` step the
+record's full state (sequence, features, primers, history) back and forth. A
+rejected edit (e.g. a blocked frameshift) leaves no dead undo point, and a new
+edit clears the redo stack. Undo history is in-memory per server run — it is
+not mirrored to SQLite, so it does not survive a restart.
 
 ## Scope notes
 

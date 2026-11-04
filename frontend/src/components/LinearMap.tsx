@@ -1,6 +1,17 @@
 import { useMemo } from "react";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { TYPE_COLORS } from "../lib/types";
+import { selectionSegments } from "../lib/selection";
+
+// The half-open segments a [start,end) span occupies, splitting at the origin
+// when it wraps (end < start).
+function spanSegments(start: number, end: number, length: number): [number, number][] {
+  return end >= start ? [[start, end]] : [[start, length], [0, end]];
+}
+
+function segsOverlap(a: [number, number][], b: [number, number][]): boolean {
+  return a.some(([a0, a1]) => b.some(([b0, b1]) => a0 < b1 && b0 < a1));
+}
 
 interface Props {
   record: PlasmidRecord;
@@ -20,17 +31,20 @@ const TRACK_Y = 60;
 const TRACK_H = 16;
 const THIN_H = 9; // overlay (primer / ORF) track height
 
-// Greedy lane packing for arbitrary [start,end] spans (wrap clipped to end).
+// Greedy lane packing for arbitrary [start,end] spans. A wrapping span occupies
+// both of its rendered segments ([start,length) and [0,end)), so both are
+// checked when deciding whether a lane is free — otherwise a wrapping track
+// could be packed on top of another near the origin.
 function stackSpans(spans: [number, number][], length: number): number[] {
-  const laneEnds: number[] = [];
-  return spans.map(([start, rawEnd]) => {
-    const end = rawEnd >= start ? rawEnd : length;
-    let lane = laneEnds.findIndex((e) => start >= e);
+  const lanes: [number, number][][] = []; // occupied segments per lane
+  return spans.map(([start, end]) => {
+    const segs = spanSegments(start, end, length);
+    let lane = lanes.findIndex((placed) => !segsOverlap(placed, segs));
     if (lane === -1) {
-      laneEnds.push(end);
-      lane = laneEnds.length - 1;
+      lanes.push([...segs]);
+      lane = lanes.length - 1;
     } else {
-      laneEnds[lane] = end;
+      lanes[lane].push(...segs);
     }
     return lane;
   });
@@ -130,17 +144,18 @@ export function LinearMap({
         </g>
       ))}
 
-      {/* selection */}
-      {selection && selection.end !== selection.start && (
+      {/* selection (one rect per segment, so a wrapping span shows both parts) */}
+      {selectionSegments(selection, length).map(([lo, hi], i) => (
         <rect
-          x={x(Math.min(selection.start, selection.end))}
+          key={`sel-${i}`}
+          x={x(lo)}
           y={TRACK_Y - 3}
-          width={Math.max(2, Math.abs(x(selection.end) - x(selection.start)))}
+          width={Math.max(2, x(hi) - x(lo))}
           height={6}
           fill="#ffca28"
           opacity={0.8}
         />
-      )}
+      ))}
 
       {/* cut sites */}
       {cutSites.map((c, i) => (

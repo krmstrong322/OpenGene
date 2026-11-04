@@ -49,9 +49,20 @@ export default function App() {
       return;
     }
     let cancelled = false;
+    const n = record.length;
     api
       .orfs(record.id, minOrfAa)
-      .then((o) => !cancelled && setOrfs(o))
+      .then((list) => {
+        if (cancelled) return;
+        // A full-record ORF comes back as start === end (both reduced mod n)
+        // with length_bp === n. Normalize it to span the whole record so it
+        // draws as a full ring / full bar and selects the whole sequence.
+        setOrfs(
+          list.map((o) =>
+            o.start === o.end && o.length_bp > 0 ? { ...o, start: 0, end: n } : o,
+          ),
+        );
+      })
       .catch(() => !cancelled && setOrfs([]));
     return () => {
       cancelled = true;
@@ -100,9 +111,29 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
 
-  const selectFeature = useCallback((f: Feature) => {
-    setSelection({ start: f.start, end: f.end, featureId: f.id });
-  }, []);
+  const selectFeature = useCallback(
+    (f: Feature) => {
+      setSelection({
+        start: f.start,
+        end: f.end,
+        featureId: f.id,
+        wrap: record?.isCircular ? f.end < f.start : false,
+      });
+    },
+    [record?.isCircular],
+  );
+
+  // Select a span from a map overlay (primer / ORF), flagging an
+  // origin-wrapping span so edits and highlights treat it correctly.
+  const selectRange = useCallback(
+    (sel: Selection) => {
+      setSelection({
+        ...sel,
+        wrap: record?.isCircular ? sel.end < sel.start : false,
+      });
+    },
+    [record?.isCircular],
+  );
 
   const selectFeatureById = useCallback(
     (id: string) => {
@@ -220,7 +251,7 @@ export default function App() {
                 hoveredId={hoveredId}
                 primers={showPrimers ? record.primers : []}
                 orfs={showOrfs ? orfs : []}
-                onSelectRange={setSelection}
+                onSelectRange={selectRange}
               />
             </div>
             <div className="card">
@@ -234,7 +265,7 @@ export default function App() {
                 hoveredId={hoveredId}
                 primers={showPrimers ? record.primers : []}
                 orfs={showOrfs ? orfs : []}
-                onSelectRange={setSelection}
+                onSelectRange={selectRange}
               />
             </div>
             <div className="card">

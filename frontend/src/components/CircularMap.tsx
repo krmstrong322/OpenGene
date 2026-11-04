@@ -26,12 +26,12 @@ const CX = SIZE / 2;
 const CY = SIZE / 2;
 const R_BACKBONE = 190;
 const RING_W = 22;
-// Overlay tracks: ORFs sit on two thin rings (one per strand) inside the
-// feature band; primers hug the backbone just inside it.
+// Overlay tracks: primers hug the backbone just inside it; ORFs sit on two
+// thin rings (one per strand) placed inside whatever feature rings are in use
+// (computed per-render), with a floor so they stay on-canvas.
 const R_PRIMER = R_BACKBONE - 1;
-const R_ORF_FWD = 86;
-const R_ORF_REV = 72;
 const THIN_W = 7;
+const R_ORF_MIN = 30;
 
 // Assign features to stacked rings so overlapping features don't collide.
 function assignRings(features: Feature[], length: number): Map<string, number> {
@@ -76,6 +76,17 @@ export function CircularMap({
     () => assignRings(record.features, length),
     [record.features, length],
   );
+
+  // Place the ORF rings inside the innermost feature ring actually allocated,
+  // so a deeply-stacked feature can't render over (and steal clicks from) an
+  // ORF track sitting at a fixed radius.
+  const maxRing = record.features.length
+    ? Math.max(...Array.from(ringOf.values()))
+    : -1;
+  const featuresInner =
+    R_BACKBONE - 6 - maxRing * (RING_W + 4) - (maxRing >= 0 ? RING_W : 0);
+  const rOrfFwd = Math.max(R_ORF_MIN + THIN_W + 4, featuresInner - 12);
+  const rOrfRev = Math.max(R_ORF_MIN, rOrfFwd - (THIN_W + 4));
 
   const tickBases = useMemo(() => {
     const step = niceStep(length);
@@ -157,7 +168,7 @@ export function CircularMap({
 
       {/* ORFs (overlay, behind features) */}
       {orfs.map((o, i) => {
-        const r = o.strand >= 0 ? R_ORF_FWD : R_ORF_REV;
+        const r = o.strand >= 0 ? rOrfFwd : rOrfRev;
         return (
           <path
             key={`orf-${i}`}

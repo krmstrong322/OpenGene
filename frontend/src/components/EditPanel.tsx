@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../lib/api";
+import { selectionLength } from "../lib/selection";
 import type {
   CutSite,
   Feature,
@@ -84,9 +85,14 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
     }
   };
 
-  const selLo = selection ? Math.min(selection.start, selection.end) : 0;
-  const selHi = selection ? Math.max(selection.start, selection.end) : 0;
-  const hasRange = selection && selHi > selLo;
+  // A wrapping selection keeps its order (start > end); the backend delete/
+  // replace accept that and act on the wrapping span. Any other selection is
+  // collapsed to [min, max).
+  const wrapping = !!selection?.wrap;
+  const spanStart = selection ? (wrapping ? selection.start : Math.min(selection.start, selection.end)) : 0;
+  const spanEnd = selection ? (wrapping ? selection.end : Math.max(selection.start, selection.end)) : 0;
+  const hasRange = !!selection && selection.start !== selection.end;
+  const spanBp = selectionLength(selection, record.length);
 
   return (
     <div className="stack">
@@ -143,7 +149,7 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
           {hasRange && (
             <button
               disabled={!insertSeq}
-              onClick={() => run(() => api.insert(record.id, selLo, insertSeq, framePolicy))}
+              onClick={() => run(() => api.insert(record.id, spanStart, insertSeq, framePolicy))}
             >
               Insert at selection start
             </button>
@@ -156,15 +162,16 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
         {hasRange ? (
           <>
             <p className="muted">
-              {selLo}–{selHi} ({selHi - selLo} bp)
+              {spanStart}–{spanEnd}
+              {wrapping ? " (wraps origin)" : ""} ({spanBp} bp)
             </p>
             <div className="row">
-              <button onClick={() => run(() => api.del(record.id, selLo, selHi, framePolicy))}>
+              <button onClick={() => run(() => api.del(record.id, spanStart, spanEnd, framePolicy))}>
                 Delete
               </button>
               <button
                 disabled={!insertSeq}
-                onClick={() => run(() => api.replace(record.id, selLo, selHi, insertSeq, framePolicy))}
+                onClick={() => run(() => api.replace(record.id, spanStart, spanEnd, insertSeq, framePolicy))}
               >
                 Replace with insert seq
               </button>
@@ -321,6 +328,11 @@ function FeaturesTab({ record, onRecordChange, onSelectFeature, onError }: Props
               </div>
               {editingId === f.id && (
                 <FeatureEditor
+                  // Keyed on the feature's own fields: if undo/redo (or any
+                  // edit) changes this feature underneath the open editor, the
+                  // key changes and the form remounts with the restored values,
+                  // so a later Save can't write stale values back.
+                  key={`${f.id}:${f.start}:${f.end}:${f.strand}:${f.name}:${f.type}:${f.color ?? ""}`}
                   record={record}
                   feature={f}
                   onDone={() => setEditingId(null)}

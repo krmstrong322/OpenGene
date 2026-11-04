@@ -38,6 +38,13 @@ class SessionStore:
         # which is an accepted limitation.
         self._undo: dict[str, list[str]] = {}
         self._redo: dict[str, list[str]] = {}
+        # Per-record transaction locks. A whole edit (read the shared record,
+        # snapshot its pre-state, mutate it, commit) must be atomic against
+        # other edits of the same record; the sync endpoints can otherwise run
+        # concurrently in the threadpool and interleave, so that one edit's
+        # commit stores a snapshot taken before another's mutation and undo
+        # then rolls back more than its own change.
+        self._rec_locks: dict[str, RLock] = {}
         if db_path:
             self._init_db()
             self._load_all()
@@ -122,6 +129,7 @@ class SessionStore:
             self._records.pop(record_id, None)
             self._undo.pop(record_id, None)
             self._redo.pop(record_id, None)
+            self._rec_locks.pop(record_id, None)
             if self._conn:
                 self._conn.execute("DELETE FROM records WHERE id = ?", (record_id,))
                 self._conn.commit()
@@ -131,6 +139,7 @@ class SessionStore:
             self._records.clear()
             self._undo.clear()
             self._redo.clear()
+            self._rec_locks.clear()
             if self._conn:
                 self._conn.execute("DELETE FROM records")
                 self._conn.commit()
@@ -143,6 +152,17 @@ class SessionStore:
     # invalidates any redo future), and saves. A failed edit therefore leaves
     # no dead undo entry. ``undo`` then moves the current state onto the redo
     # stack and restores the top of the undo stack; ``redo`` is the mirror.
+
+    def record_lock(self, record_id: str) -> RLock:
+        """A per-record re-entrant lock. Callers hold it across a whole edit
+        (snapshot → mutate → commit) and across undo/redo, so concurrent edits
+        of the same record are serialized rather than interleaved."""
+        with self._lock:
+            lk = self._rec_locks.get(record_id)
+            if lk is None:
+                lk = RLock()
+                self._rec_locks[record_id] = lk
+            return lk
 
     def commit(self, record: PlasmidRecord, pre_state: str) -> PlasmidRecord:
         """Record ``pre_state`` as an undo point and persist the edited record."""

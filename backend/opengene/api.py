@@ -7,8 +7,9 @@ string edits from outside the engine.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict
-from typing import Literal
+from typing import Iterator, Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -121,14 +122,20 @@ def _record_response(record: PlasmidRecord) -> dict:
     return data
 
 
-def _get_for_edit(record_id: str) -> tuple[PlasmidRecord, str]:
-    """Fetch a record and capture its pre-edit state for undo.
+@contextmanager
+def _edit_txn(record_id: str) -> Iterator[tuple[PlasmidRecord, str]]:
+    """Serialize a whole edit of one record under its transaction lock.
 
-    The caller applies the edit and, only on success, calls ``store.commit``
-    with the returned pre-state so a rejected edit leaves no dead undo point.
+    Yields ``(record, pre_state)``: the shared record and a serialized snapshot
+    of its state before the edit. The caller mutates ``record`` and, on
+    success, calls ``store.commit(record, pre_state)`` — all inside the lock, so
+    concurrent edits of the same record cannot interleave. A rejected edit
+    raises out of the block, releasing the lock and leaving no undo point.
     """
-    record = _get(record_id)
-    return record, record.model_dump_json()
+    _get(record_id)  # 404 before taking the lock if unknown
+    with store.record_lock(record_id):
+        record = _get(record_id)  # re-read inside the lock
+        yield record, record.model_dump_json()
 
 
 # --------------------------------------------------------------------------
@@ -216,81 +223,83 @@ def _attachment(name: str, ext: str) -> str:
 
 @app.post("/records/{record_id}/insert")
 def insert(record_id: str, req: InsertRequest) -> dict:
-    record, pre = _get_for_edit(record_id)
-    try:
-        seq_mod.insert(record, req.position, req.sequence, req.frame_policy)
-    except seq_mod.FrameShiftError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except seq_mod.SequenceError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    store.commit(record, pre)
-    return _record_response(record)
+    with _edit_txn(record_id) as (record, pre):
+        try:
+            seq_mod.insert(record, req.position, req.sequence, req.frame_policy)
+        except seq_mod.FrameShiftError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except seq_mod.SequenceError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        store.commit(record, pre)
+        return _record_response(record)
 
 
 @app.post("/records/{record_id}/delete")
 def delete(record_id: str, req: DeleteRequest) -> dict:
-    record, pre = _get_for_edit(record_id)
-    try:
-        seq_mod.delete(record, req.start, req.end, req.frame_policy)
-    except seq_mod.FrameShiftError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except seq_mod.SequenceError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    store.commit(record, pre)
-    return _record_response(record)
+    with _edit_txn(record_id) as (record, pre):
+        try:
+            seq_mod.delete(record, req.start, req.end, req.frame_policy)
+        except seq_mod.FrameShiftError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except seq_mod.SequenceError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        store.commit(record, pre)
+        return _record_response(record)
 
 
 @app.post("/records/{record_id}/mutate")
 def mutate(record_id: str, req: MutateRequest) -> dict:
-    record, pre = _get_for_edit(record_id)
-    try:
-        seq_mod.mutate(record, req.position, req.base)
-    except seq_mod.SequenceError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    store.commit(record, pre)
-    return _record_response(record)
+    with _edit_txn(record_id) as (record, pre):
+        try:
+            seq_mod.mutate(record, req.position, req.base)
+        except seq_mod.SequenceError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        store.commit(record, pre)
+        return _record_response(record)
 
 
 @app.post("/records/{record_id}/replace")
 def replace(record_id: str, req: ReplaceRequest) -> dict:
-    record, pre = _get_for_edit(record_id)
-    try:
-        seq_mod.replace_range(
-            record, req.start, req.end, req.sequence, req.frame_policy
-        )
-    except seq_mod.FrameShiftError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except seq_mod.SequenceError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    store.commit(record, pre)
-    return _record_response(record)
+    with _edit_txn(record_id) as (record, pre):
+        try:
+            seq_mod.replace_range(
+                record, req.start, req.end, req.sequence, req.frame_policy
+            )
+        except seq_mod.FrameShiftError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except seq_mod.SequenceError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        store.commit(record, pre)
+        return _record_response(record)
 
 
 @app.post("/records/{record_id}/reverse_complement")
 def reverse_complement(record_id: str) -> dict:
-    record, pre = _get_for_edit(record_id)
-    seq_mod.reverse_complement_record(record)
-    store.commit(record, pre)
-    return _record_response(record)
+    with _edit_txn(record_id) as (record, pre):
+        seq_mod.reverse_complement_record(record)
+        store.commit(record, pre)
+        return _record_response(record)
 
 
 @app.post("/records/{record_id}/undo")
 def undo(record_id: str) -> dict:
     _get(record_id)  # 404 if unknown
-    try:
-        record = store.undo(record_id)
-    except IndexError:
-        raise HTTPException(status_code=409, detail="nothing to undo")
+    with store.record_lock(record_id):
+        try:
+            record = store.undo(record_id)
+        except IndexError:
+            raise HTTPException(status_code=409, detail="nothing to undo")
     return _record_response(record)
 
 
 @app.post("/records/{record_id}/redo")
 def redo(record_id: str) -> dict:
     _get(record_id)  # 404 if unknown
-    try:
-        record = store.redo(record_id)
-    except IndexError:
-        raise HTTPException(status_code=409, detail="nothing to redo")
+    with store.record_lock(record_id):
+        try:
+            record = store.redo(record_id)
+        except IndexError:
+            raise HTTPException(status_code=409, detail="nothing to redo")
     return _record_response(record)
 
 
@@ -337,16 +346,16 @@ def analyze_primer(req: PrimerAnalyzeRequest) -> dict:
 
 @app.post("/records/{record_id}/design_primers")
 def design_primers(record_id: str, req: PrimerDesignRequest) -> dict:
-    record, pre = _get_for_edit(record_id)
-    fwd, rev = primers_mod.design_primer_pair(
-        record, req.region_start, req.region_end, req.target_tm
-    )
-    record.primers.extend([fwd, rev])
-    store.commit(record, pre)
-    return {
-        "forward": fwd.model_dump(by_alias=True),
-        "reverse": rev.model_dump(by_alias=True),
-    }
+    with _edit_txn(record_id) as (record, pre):
+        fwd, rev = primers_mod.design_primer_pair(
+            record, req.region_start, req.region_end, req.target_tm
+        )
+        record.primers.extend([fwd, rev])
+        store.commit(record, pre)
+        return {
+            "forward": fwd.model_dump(by_alias=True),
+            "reverse": rev.model_dump(by_alias=True),
+        }
 
 
 # --------------------------------------------------------------------------
@@ -355,18 +364,18 @@ def design_primers(record_id: str, req: PrimerDesignRequest) -> dict:
 
 @app.post("/records/{record_id}/annotate")
 def annotate(record_id: str, req: AnnotateRequest) -> dict:
-    record, pre = _get_for_edit(record_id)
-    new = annotate_mod.annotate(
-        record,
-        replace_existing=req.replace_existing,
-        min_identity=req.min_identity,
-        min_coverage=req.min_coverage,
-    )
-    store.commit(record, pre)
-    return {
-        "added": [f.model_dump() for f in new],
-        "record": _record_response(record),
-    }
+    with _edit_txn(record_id) as (record, pre):
+        new = annotate_mod.annotate(
+            record,
+            replace_existing=req.replace_existing,
+            min_identity=req.min_identity,
+            min_coverage=req.min_coverage,
+        )
+        store.commit(record, pre)
+        return {
+            "added": [f.model_dump() for f in new],
+            "record": _record_response(record),
+        }
 
 
 def _validate_feature_span(record: PlasmidRecord, start: int, end: int) -> None:
@@ -383,37 +392,49 @@ def _validate_feature_span(record: PlasmidRecord, start: int, end: int) -> None:
         )
 
 
+# Feature fields that may not be set to null (only ``color`` is nullable).
+_NON_NULLABLE_FEATURE_FIELDS = ("name", "type", "start", "end", "strand")
+
+
 @app.post("/records/{record_id}/features")
 def add_feature(record_id: str, feature: Feature) -> dict:
-    record, pre = _get_for_edit(record_id)
-    _validate_feature_span(record, feature.start, feature.end)
-    record.features.append(feature)
-    store.commit(record, pre)
-    return _record_response(record)
+    with _edit_txn(record_id) as (record, pre):
+        _validate_feature_span(record, feature.start, feature.end)
+        record.features.append(feature)
+        store.commit(record, pre)
+        return _record_response(record)
 
 
 @app.patch("/records/{record_id}/features/{feature_id}")
 def update_feature(record_id: str, feature_id: str, req: FeatureUpdate) -> dict:
-    record, pre = _get_for_edit(record_id)
-    feat = next((f for f in record.features if f.id == feature_id), None)
-    if feat is None:
-        raise HTTPException(status_code=404, detail=f"feature {feature_id} not found")
     changes = req.model_dump(exclude_unset=True)
-    new_start = changes.get("start", feat.start)
-    new_end = changes.get("end", feat.end)
-    _validate_feature_span(record, new_start, new_end)
-    record.features = [feat.model_copy(update=changes) if f.id == feature_id else f
-                       for f in record.features]
-    store.commit(record, pre)
-    return _record_response(record)
+    # ``exclude_unset`` keeps an explicit ``null`` the client sent. Reject nulls
+    # for non-nullable fields here, before validation or ``model_copy`` (which
+    # does not re-validate) can turn them into a 500 or an unrestorable feature.
+    nulled = [k for k in _NON_NULLABLE_FEATURE_FIELDS if changes.get(k) is None and k in changes]
+    if nulled:
+        raise HTTPException(
+            status_code=422, detail=f"fields may not be null: {', '.join(nulled)}"
+        )
+    with _edit_txn(record_id) as (record, pre):
+        feat = next((f for f in record.features if f.id == feature_id), None)
+        if feat is None:
+            raise HTTPException(status_code=404, detail=f"feature {feature_id} not found")
+        new_start = changes.get("start", feat.start)
+        new_end = changes.get("end", feat.end)
+        _validate_feature_span(record, new_start, new_end)
+        record.features = [feat.model_copy(update=changes) if f.id == feature_id else f
+                           for f in record.features]
+        store.commit(record, pre)
+        return _record_response(record)
 
 
 @app.delete("/records/{record_id}/features/{feature_id}")
 def delete_feature(record_id: str, feature_id: str) -> dict:
-    record, pre = _get_for_edit(record_id)
-    record.features = [f for f in record.features if f.id != feature_id]
-    store.commit(record, pre)
-    return _record_response(record)
+    with _edit_txn(record_id) as (record, pre):
+        record.features = [f for f in record.features if f.id != feature_id]
+        store.commit(record, pre)
+        return _record_response(record)
 
 
 @app.get("/feature_library")

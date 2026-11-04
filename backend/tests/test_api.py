@@ -220,6 +220,35 @@ def test_update_missing_feature_is_404(client):
     assert r.status_code == 404
 
 
+@pytest.mark.parametrize("field", ["name", "type", "start", "end", "strand"])
+def test_update_feature_rejects_explicit_null(client, field):
+    # An explicit null for a non-nullable field is a 422, not a 500, and must
+    # not be stored (a null strand/type can't be restored from a snapshot).
+    rec = _create(client, seq="ATGGCAGCTACGT")
+    rid = rec["id"]
+    fid = client.post(
+        f"/records/{rid}/features",
+        json={"name": "f", "type": "CDS", "start": 0, "end": 3, "strand": 1},
+    ).json()["features"][0]["id"]
+    r = client.patch(f"/records/{rid}/features/{fid}", json={field: None})
+    assert r.status_code == 422
+    # The feature is unchanged and still valid.
+    f = client.get(f"/records/{rid}").json()["features"][0]
+    assert f["name"] == "f" and f["type"] == "CDS" and f["strand"] == 1
+
+
+def test_update_feature_allows_null_color(client):
+    rec = _create(client, seq="ATGGCAGCTACGT")
+    rid = rec["id"]
+    fid = client.post(
+        f"/records/{rid}/features",
+        json={"name": "f", "type": "CDS", "start": 0, "end": 3, "strand": 1, "color": "#abcdef"},
+    ).json()["features"][0]["id"]
+    r = client.patch(f"/records/{rid}/features/{fid}", json={"color": None})
+    assert r.status_code == 200
+    assert r.json()["features"][0]["color"] is None
+
+
 def test_update_feature_is_undoable(client):
     rec = _create(client, seq="ATGGCAGCTACGT")
     rid = rec["id"]

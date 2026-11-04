@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Feature, PlasmidRecord, Selection } from "../lib/types";
 import { TYPE_COLORS } from "../lib/types";
+import { inSelection as segInSelection, selectionLength } from "../lib/selection";
 
 interface Props {
   record: PlasmidRecord;
@@ -39,12 +40,7 @@ export function SequenceViewer({ record, selection, onSelect, hoveredId }: Props
     return out;
   }, [seq]);
 
-  const inSelection = (i: number) => {
-    if (!selection || selection.start === selection.end) return false;
-    const lo = Math.min(selection.start, selection.end);
-    const hi = Math.max(selection.start, selection.end);
-    return i >= lo && i < hi;
-  };
+  const inSelection = (i: number) => segInSelection(selection, record.length, i);
 
   const handleBaseClick = (i: number, shift: boolean) => {
     if (shift && selection) {
@@ -90,9 +86,9 @@ export function SequenceViewer({ record, selection, onSelect, hoveredId }: Props
       ))}
       {selection && selection.start !== selection.end && (
         <div className="seq-selinfo">
-          Selected {Math.min(selection.start, selection.end)}–
-          {Math.max(selection.start, selection.end)} (
-          {Math.abs(selection.end - selection.start)} bp)
+          Selected {selection.start}–{selection.end}
+          {selection.wrap ? " (wraps origin)" : ""} (
+          {selectionLength(selection, record.length)} bp)
         </div>
       )}
     </div>

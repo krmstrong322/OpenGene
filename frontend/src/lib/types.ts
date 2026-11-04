@@ -98,10 +98,16 @@ export interface PrimerAnalysis {
 }
 
 // A shared selection range used to synchronize all three views.
+// `wrap` marks an intentional origin-wrapping span (start > end on a circular
+// record), as produced by clicking a wrapping feature or overlay track. It
+// distinguishes that from an ordinary backwards drag, which consumers collapse
+// with min/max. When `wrap` is set the selected bases are [start, length) ∪
+// [0, end); otherwise they are [min, max).
 export interface Selection {
   start: number;
   end: number;
   featureId?: string;
+  wrap?: boolean;
 }
 
 export const TYPE_COLORS: Record<FeatureType, string> = {

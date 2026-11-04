@@ -4,7 +4,7 @@ Combines two sources:
 
 1. Canonical short regulatory elements and affinity/epitope tags (exact motifs
    that are standard across molecular biology).
-2. Gene / origin sequences extracted from public NCBI reference plasmids whose
+2. Gene sequences extracted from public NCBI reference plasmids whose
    GenBank records are provided on the command line (so the stored sequences
    are verified against primary records rather than typed by hand).
 
@@ -132,12 +132,30 @@ def extract_from_refs(paths: list[Path]) -> list[dict]:
     return out
 
 
+def load_derived_origins() -> list[dict]:
+    """Replication origins recovered from verified vector sequences by
+    cross-plasmid conservation (see derived_origins.json for per-origin
+    provenance). Kept as data rather than re-derived here, since the
+    derivation needs several reference genomes; the `provenance` field is
+    dropped from the library (it is documentation, not match data)."""
+    path = Path(__file__).resolve().parent / "derived_origins.json"
+    if not path.exists():
+        return []
+    entries = json.loads(path.read_text())
+    return [
+        {"name": e["name"], "type": e["type"], "sequence": e["sequence"],
+         "source": e.get("source", "derived")}
+        for e in entries
+    ]
+
+
 def main(argv: list[str]) -> int:
     refs = [Path(p) for p in argv[1:]]
     library = [dict(e) for e in CANONICAL]
     for e in library:
         e.setdefault("source", "canonical")
     library.extend(extract_from_refs(refs))
+    library.extend(load_derived_origins())
 
     out_path = Path(__file__).resolve().parent.parent / "opengene" / "data" / "feature_library.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -159,3 +159,29 @@ def test_linear_rbs_at_end_not_satisfied_by_start_atg():
     circular = PlasmidRecord(name="t", sequence=seq, is_circular=True)
     assert not [f for f in A.annotate(linear) if f.type == "RBS"]      # ends don't connect
     assert [f for f in A.annotate(circular) if f.type == "RBS"]        # wraps to the ATG
+
+
+# --- replication origins -------------------------------------------------
+
+ORIGIN_NAMES = {"ColE1/pUC ori", "f1 ori", "SV40 ori", "p15A ori"}
+
+
+def test_library_contains_the_key_origins():
+    names = {e.name for e in A.load_library() if e.type == "origin"}
+    assert ORIGIN_NAMES <= names
+
+
+@pytest.mark.parametrize("origin_name", sorted(ORIGIN_NAMES))
+def test_each_origin_is_detected_in_a_backbone(origin_name):
+    origin = next(e.sequence for e in A.load_library() if e.name == origin_name)
+    rec = PlasmidRecord(name="t", sequence=BACKBONE + origin + BACKBONE, is_circular=True)
+    hits = [f for f in A.annotate(rec) if f.name == origin_name]
+    assert hits and hits[0].type.value == "origin"
+    assert hits[0].notes["exact"] == "true"
+
+
+def test_origins_not_called_on_random_sequence():
+    rng = random.Random(11)
+    seq = "".join(rng.choice("ACGT") for _ in range(4000))
+    rec = PlasmidRecord(name="t", sequence=seq, is_circular=True)
+    assert not [f for f in A.annotate(rec) if f.type.value == "origin"]

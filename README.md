@@ -62,7 +62,8 @@ Open the app and click **Load demo**.
 - **Primers** — Tm / GC / hairpin / dimer analysis and PCR primer-pair design (primer3)
 - **Auto-annotation** — pure-Python seed-and-extend matching against a bundled
   feature library (promoters, terminators, tags, resistance genes, fluorescent
-  proteins; no replication origins yet) on both strands and across the origin;
+  proteins, and replication origins — ColE1/pUC, f1, SV40, p15A) on both strands
+  and across the origin;
   tolerates substitutions and indels, finds partial parts, and reports identity
   and coverage per hit
 

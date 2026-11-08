@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { Feature, PlasmidRecord, Selection } from "../lib/types";
 import { TYPE_COLORS } from "../lib/types";
-import { inSelection as segInSelection, selectionLength } from "../lib/selection";
+import { inSelection as segInSelection } from "../lib/selection";
 
 interface Props {
   record: PlasmidRecord;
@@ -64,15 +64,15 @@ export function SequenceViewer({ record, selection, onSelect, hoveredId }: Props
               return (
                 <span
                   key={idx}
-                  className="seq-base"
+                  className={(j + 1) % 10 === 0 && j + 1 < line.text.length ? "seq-base gap" : "seq-base"}
                   style={{
                     background: sel
-                      ? "#ffca28"
+                      ? "var(--sel)"
                       : f
-                        ? (f.color || TYPE_COLORS[f.type]) + (hov ? "" : "44")
+                        ? (f.color || TYPE_COLORS[f.type]) + (hov ? "" : "38")
                         : "transparent",
-                    color: sel ? "#000" : f && hov ? "#fff" : "#263238",
-                    outline: hov ? "1px solid #212121" : "none",
+                    color: sel ? "var(--sel-ink)" : f && hov ? "#fff" : "var(--ink-2)",
+                    outline: hov ? "1px solid var(--ink)" : "none",
                   }}
                   title={f ? `${f.name} (${idx})` : `base ${idx}`}
                   onClick={(e) => handleBaseClick(idx, e.shiftKey)}
@@ -84,13 +84,6 @@ export function SequenceViewer({ record, selection, onSelect, hoveredId }: Props
           </span>
         </div>
       ))}
-      {selection && selection.start !== selection.end && (
-        <div className="seq-selinfo">
-          Selected {selection.start}–{selection.end}
-          {selection.wrap ? " (wraps origin)" : ""} (
-          {selectionLength(selection, record.length)} bp)
-        </div>
-      )}
     </div>
   );
 }

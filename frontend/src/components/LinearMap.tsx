@@ -19,7 +19,7 @@ interface Props {
 const H = 150;
 const PAD = 40;
 const TRACK_Y = 60;
-const TRACK_H = 16;
+const TRACK_H = 14;
 const THIN_H = 9; // overlay (primer / ORF) track height
 
 // Stack overlapping features into lanes.
@@ -76,6 +76,21 @@ export function LinearMap({
   const orfBandY = primerBandY + primerRows * (THIN_H + 3) + (orfRows ? 10 : 0);
   const totalH = orfBandY + orfRows * (THIN_H + 3) + 20;
 
+  // Row (0 = lowest) for each cut-site label: the first row where it doesn't
+  // overlap a label already placed (≈4.8px per character at 8px).
+  const cutRows = useMemo(() => {
+    const rows: [number, number][][] = []; // occupied [left, right] spans per row
+    return cutSites.map((c) => {
+      const cx = PAD + (c.position / length) * usable;
+      const half = (c.enzyme.length * 4.8 + 4) / 2;
+      let row = 0;
+      while (row < 3 && (rows[row] ?? []).some(([a, b]) => cx + half > a && cx - half < b)) row++;
+      rows[row] = rows[row] ?? [];
+      rows[row].push([cx - half, cx + half]);
+      return row;
+    });
+  }, [cutSites, length, usable]);
+
   const ticks = useMemo(() => {
     const step = niceStep(length);
     const out: number[] = [];
@@ -85,6 +100,7 @@ export function LinearMap({
 
   return (
     <svg
+      className="map-svg"
       viewBox={`0 0 ${width} ${Math.max(H, totalH)}`}
       width="100%"
       style={{ userSelect: "none" }}
@@ -92,16 +108,16 @@ export function LinearMap({
       aria-label={`Linear map of ${record.name}`}
     >
       {/* axis */}
-      <line x1={PAD} y1={TRACK_Y} x2={width - PAD} y2={TRACK_Y} stroke="#607d8b" strokeWidth={2} />
+      <line className="backbone" x1={PAD} y1={TRACK_Y} x2={width - PAD} y2={TRACK_Y} strokeWidth={2} />
       {!record.isCircular && (
         <>
-          <line x1={PAD} y1={TRACK_Y - 6} x2={PAD} y2={TRACK_Y + 6} stroke="#607d8b" strokeWidth={2} />
+          <line className="tick" x1={PAD} y1={TRACK_Y - 6} x2={PAD} y2={TRACK_Y + 6} strokeWidth={2} />
           <line
             x1={width - PAD}
             y1={TRACK_Y - 6}
             x2={width - PAD}
             y2={TRACK_Y + 6}
-            stroke="#607d8b"
+            className="tick"
             strokeWidth={2}
           />
         </>
@@ -109,8 +125,8 @@ export function LinearMap({
 
       {ticks.map((b) => (
         <g key={`t-${b}`}>
-          <line x1={x(b)} y1={TRACK_Y} x2={x(b)} y2={TRACK_Y - 5} stroke="#90a4ae" />
-          <text x={x(b)} y={TRACK_Y - 9} fontSize={9} fill="#607d8b" textAnchor="middle">
+          <line className="tick" x1={x(b)} y1={TRACK_Y - 2} x2={x(b)} y2={TRACK_Y - 7} />
+          <text className="tick-label" x={x(b)} y={TRACK_Y - 11} fontSize={9} textAnchor="middle">
             {b}
           </text>
         </g>
@@ -124,41 +140,49 @@ export function LinearMap({
           y={TRACK_Y - 3}
           width={Math.max(2, x(hi) - x(lo))}
           height={6}
-          fill="#ffca28"
-          opacity={0.8}
+          className="sel"
+          rx={2}
+          opacity={0.9}
         />
       ))}
 
-      {/* cut sites */}
+      {/* cut sites: stems first, then labels (stacked upward above the tick
+          labels so none overlap), so no stem can run through a label */}
       {cutSites.map((c, i) => (
-        <g key={`c-${i}`}>
-          <line
-            x1={x(c.position)}
-            y1={TRACK_Y - 14}
-            x2={x(c.position)}
-            y2={TRACK_Y + 4}
-            stroke="#d32f2f"
-            strokeWidth={1.2}
-          />
-          <text
-            x={x(c.position)}
-            y={TRACK_Y - 16}
-            fontSize={8}
-            fill="#d32f2f"
-            textAnchor="middle"
-          >
-            {c.enzyme}
-          </text>
-        </g>
+        <line
+          key={`cs-${i}`}
+          x1={x(c.position)}
+          y1={TRACK_Y - 20 - cutRows[i] * 9}
+          x2={x(c.position)}
+          y2={TRACK_Y + 4}
+          className="cut"
+          strokeWidth={1}
+        />
+      ))}
+      {cutSites.map((c, i) => (
+        <text
+          key={`cl-${i}`}
+          x={x(c.position)}
+          y={TRACK_Y - 22 - cutRows[i] * 9}
+          fontSize={8}
+          className="cut-label label-halo"
+          textAnchor="middle"
+        >
+          {c.enzyme}
+        </text>
       ))}
 
       {/* features as lanes below the axis */}
       {record.features.map((f) => {
         const lane = laneOf.get(f.id) ?? 0;
         const y = TRACK_Y + 20 + lane * (TRACK_H + 6);
-        const color = f.color || TYPE_COLORS[f.type] || "#9E9E9E";
+        const color = f.color || TYPE_COLORS[f.type] || "#8E949C";
         const active = hoveredId === f.id || selection?.featureId === f.id;
-        const segments = spanSegments(f.start, f.end, length);
+        // Drop an empty tail (a feature ending exactly at the origin, e.g.
+        // 871–0), but keep a zero-length feature's single segment.
+        const allSegs = spanSegments(f.start, f.end, length);
+        const nonEmpty = allSegs.filter(([a, b]) => b > a);
+        const segments = nonEmpty.length ? nonEmpty : allSegs;
         return (
           <g
             key={f.id}
@@ -166,28 +190,38 @@ export function LinearMap({
             onClick={() => onSelectFeature(f)}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
-            opacity={hoveredId && !active ? 0.55 : 1}
+            opacity={hoveredId && !active ? 0.6 : 1}
           >
             {segments.map(([s, e], si) => (
               <path
                 key={si}
+                className={active ? "feature active" : "feature"}
                 d={arrowRect(x(s), x(e), y, TRACK_H, f.strand)}
                 fill={color}
-                stroke={active ? "#212121" : "white"}
-                strokeWidth={active ? 1.5 : 0.5}
+                strokeWidth={0.75}
               />
             ))}
-            <text
-              x={x(segments[0][0]) + 4}
-              y={y + TRACK_H / 2}
-              fontSize={10}
-              fill="#fff"
-              fontWeight={600}
-              dominantBaseline="middle"
-              style={{ pointerEvents: "none" }}
-            >
-              {f.name}
-            </text>
+            {(() => {
+              // Label inside the widest segment, truncated to what fits.
+              const [s0, e0] = segments.reduce((a, b) => (b[1] - b[0] > a[1] - a[0] ? b : a));
+              const room = x(e0) - x(s0) - 14;
+              const text = fitLabel(f.name, room);
+              if (!text) return null;
+              const lx = f.strand >= 0 ? x(s0) + 5 : x(s0) + 11;
+              return (
+                <text
+                  x={lx}
+                  y={y + TRACK_H / 2 + 0.5}
+                  fontSize={9.5}
+                  fill="#fff"
+                  fontWeight={500}
+                  dominantBaseline="middle"
+                  style={{ pointerEvents: "none" }}
+                >
+                  {text}
+                </text>
+              );
+            })()}
             <title>
               {f.name} ({f.start}–{f.end}, {f.strand === 1 ? "+" : "−"})
             </title>
@@ -197,7 +231,7 @@ export function LinearMap({
 
       {/* primer overlay band */}
       {primers.length > 0 && (
-        <text x={PAD} y={primerBandY - 2} fontSize={9} fill="#9C27B0">
+        <text className="band-label" x={PAD} y={primerBandY - 3} fontSize={9}>
           primers
         </text>
       )}
@@ -214,9 +248,9 @@ export function LinearMap({
               <path
                 key={si}
                 d={arrowRect(x(s), x(e), y, THIN_H, p.strand)}
+                className="feature"
                 fill={TYPE_COLORS.primer}
-                stroke="white"
-                strokeWidth={0.4}
+                strokeWidth={0.5}
               />
             ))}
             <title>
@@ -228,7 +262,7 @@ export function LinearMap({
 
       {/* ORF overlay band */}
       {orfs.length > 0 && (
-        <text x={PAD} y={orfBandY - 2} fontSize={9} fill="#607d8b">
+        <text className="band-label" x={PAD} y={orfBandY - 3} fontSize={9}>
           ORFs
         </text>
       )}
@@ -245,7 +279,7 @@ export function LinearMap({
               <path
                 key={si}
                 d={arrowRect(x(s), x(e), y, THIN_H, o.strand)}
-                fill="#78909c"
+                className="orf"
                 opacity={0.6}
               />
             ))}
@@ -259,18 +293,23 @@ export function LinearMap({
   );
 }
 
-// A rectangle with an arrowhead on the appropriate end.
+// A bar with an arrowhead on its 3' end. Like the circular map, the head has
+// a fixed length tied to the bar height (so all tips share one shape), but
+// never takes more than 60% of the bar; very short bars are widened about
+// their middle to stay visible.
 function arrowRect(x0: number, x1: number, y: number, h: number, strand: number): string {
-  const w = Math.max(2, x1 - x0);
-  const head = Math.min(8, w);
-  if (strand >= 0) {
-    return `M ${x0} ${y} L ${x0 + w - head} ${y} L ${x0 + w} ${y + h / 2} L ${
-      x0 + w - head
-    } ${y + h} L ${x0} ${y + h} Z`;
+  let w = x1 - x0;
+  if (w < 3) {
+    x0 = (x0 + x1) / 2 - 1.5;
+    w = 3;
   }
-  return `M ${x0 + w} ${y} L ${x0 + head} ${y} L ${x0} ${y + h / 2} L ${x0 + head} ${
-    y + h
-  } L ${x0 + w} ${y + h} Z`;
+  const head = Math.min(h * 0.6, w * 0.6);
+  const xe = x0 + w;
+  const ym = y + h / 2;
+  if (strand >= 0) {
+    return `M ${x0} ${y} L ${xe - head} ${y} L ${xe} ${ym} L ${xe - head} ${y + h} L ${x0} ${y + h} Z`;
+  }
+  return `M ${xe} ${y} L ${x0 + head} ${y} L ${x0} ${ym} L ${x0 + head} ${y + h} L ${xe} ${y + h} Z`;
 }
 
 function niceStep(length: number): number {
@@ -280,4 +319,14 @@ function niceStep(length: number): number {
     if (m * pow >= target) return m * pow;
   }
   return 10 * pow;
+}
+
+// The longest prefix of `name` that fits in `room` px at the 10px label size
+// (≈6px per character), with an ellipsis when cut; null if not even a couple
+// of characters fit.
+function fitLabel(name: string, room: number): string | null {
+  const max = Math.floor(room / 6);
+  if (name.length <= max) return name;
+  if (max < 3) return null;
+  return name.slice(0, max - 1) + "…";
 }

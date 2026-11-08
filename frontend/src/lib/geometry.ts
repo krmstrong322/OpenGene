@@ -76,9 +76,21 @@ export function arcPath(
   ].join(" ");
 }
 
+// Arrowhead length as a fraction of the band's width, so every feature gets
+// the same tip shape whatever its length or the plasmid's size.
+const HEAD_RATIO = 0.7;
+// A head never takes more than this share of a feature, so short features
+// keep a little body instead of collapsing into a bare triangle.
+const HEAD_MAX_SHARE = 0.6;
+// Features shorter than this on screen are drawn at this size (about their
+// middle) so they stay visible and clickable.
+const MIN_ARC_PX = 4;
+
 /**
  * Arc path for a directional feature: a ring segment with an arrowhead on the
- * 3' end (pointing clockwise for + strand, counter-clockwise for −).
+ * 3' end (pointing clockwise for + strand, counter-clockwise for −). The head
+ * has a fixed on-screen length tied to the band width rather than to the
+ * feature or plasmid length.
  */
 export function directedArcPath(
   cx: number,
@@ -95,48 +107,42 @@ export function directedArcPath(
   if (span <= 0) return arcPath(cx, cy, rInner, rOuter, startBase, endBase, length);
 
   const rMid = (rInner + rOuter) / 2;
-  // arrowhead occupies up to ~3% of the circle or the whole feature if short
-  const headSpan = Math.min(span, (length * 0.03) | 0 || 1);
+  let a0 = baseToAngle(startBase, length);
+  let a1 = a0 + (span / length) * 2 * Math.PI;
+  const minSweep = MIN_ARC_PX / rMid;
+  if (a1 - a0 < minSweep) {
+    const mid = (a0 + a1) / 2;
+    a0 = mid - minSweep / 2;
+    a1 = mid + minSweep / 2;
+  }
+  const sweep = a1 - a0;
+  const head = Math.min(((rOuter - rInner) * HEAD_RATIO) / rMid, sweep * HEAD_MAX_SHARE);
+  const largeArc = sweep - head > Math.PI ? 1 : 0;
+  const at = (r: number, a: number) => {
+    const p = polar(cx, cy, r, a);
+    return `${p.x} ${p.y}`;
+  };
 
   if (strand >= 0) {
-    const bodyEnd = startBase + span - headSpan;
-    const a0 = baseToAngle(startBase, length);
-    const aBody = baseToAngle(bodyEnd, length);
-    const aTip = baseToAngle(startBase + span, length);
-    const largeArc = (span - headSpan) / length > 0.5 ? 1 : 0;
-    const pO0 = polar(cx, cy, rOuter, a0);
-    const pOb = polar(cx, cy, rOuter, aBody);
-    const tip = polar(cx, cy, rMid, aTip);
-    const pIb = polar(cx, cy, rInner, aBody);
-    const pI0 = polar(cx, cy, rInner, a0);
+    const aBody = a1 - head;
     return [
-      `M ${pO0.x} ${pO0.y}`,
-      `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${pOb.x} ${pOb.y}`,
-      `L ${tip.x} ${tip.y}`,
-      `L ${pIb.x} ${pIb.y}`,
-      `A ${rInner} ${rInner} 0 ${largeArc} 0 ${pI0.x} ${pI0.y}`,
-      "Z",
-    ].join(" ");
-  } else {
-    const bodyStart = startBase + headSpan;
-    const aTip = baseToAngle(startBase, length);
-    const aBody = baseToAngle(bodyStart, length);
-    const aEnd = baseToAngle(startBase + span, length);
-    const largeArc = (span - headSpan) / length > 0.5 ? 1 : 0;
-    const tip = polar(cx, cy, rMid, aTip);
-    const pOb = polar(cx, cy, rOuter, aBody);
-    const pOe = polar(cx, cy, rOuter, aEnd);
-    const pIe = polar(cx, cy, rInner, aEnd);
-    const pIb = polar(cx, cy, rInner, aBody);
-    return [
-      `M ${tip.x} ${tip.y}`,
-      `L ${pOb.x} ${pOb.y}`,
-      `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${pOe.x} ${pOe.y}`,
-      `L ${pIe.x} ${pIe.y}`,
-      `A ${rInner} ${rInner} 0 ${largeArc} 0 ${pIb.x} ${pIb.y}`,
+      `M ${at(rOuter, a0)}`,
+      `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${at(rOuter, aBody)}`,
+      `L ${at(rMid, a1)}`,
+      `L ${at(rInner, aBody)}`,
+      `A ${rInner} ${rInner} 0 ${largeArc} 0 ${at(rInner, a0)}`,
       "Z",
     ].join(" ");
   }
+  const aBody = a0 + head;
+  return [
+    `M ${at(rMid, a0)}`,
+    `L ${at(rOuter, aBody)}`,
+    `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${at(rOuter, a1)}`,
+    `L ${at(rInner, a1)}`,
+    `A ${rInner} ${rInner} 0 ${largeArc} 0 ${at(rInner, aBody)}`,
+    "Z",
+  ].join(" ");
 }
 
 /** Tick line coordinates from the ring edge outward. */

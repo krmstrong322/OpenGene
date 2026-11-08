@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Pencil, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { selectionLength } from "../lib/selection";
 import { TYPE_COLORS } from "../lib/types";
@@ -10,6 +11,7 @@ import type {
   ORF,
   PlasmidRecord,
   Primer,
+  PrimerAnalysis,
   Selection,
 } from "../lib/types";
 
@@ -38,20 +40,30 @@ interface Props {
 
 type Tab = "edit" | "features" | "orfs" | "enzymes" | "primers";
 
+const TABS: { id: Tab; label: string }[] = [
+  { id: "edit", label: "Edit" },
+  { id: "features", label: "Features" },
+  { id: "orfs", label: "ORFs" },
+  { id: "enzymes", label: "Enzymes" },
+  { id: "primers", label: "Primers" },
+];
+
 export function EditPanel(props: Props) {
   const { record, selection, onRecordChange, onError } = props;
   const [tab, setTab] = useState<Tab>("edit");
 
   return (
-    <div className="panel">
-      <div className="tabs">
-        {(["edit", "features", "orfs", "enzymes", "primers"] as Tab[]).map((t) => (
+    <aside className="panel">
+      <div className="tabs" role="tablist">
+        {TABS.map(({ id, label }) => (
           <button
-            key={t}
-            className={tab === t ? "tab active" : "tab"}
-            onClick={() => setTab(t)}
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            className={tab === id ? "tab active" : "tab"}
+            onClick={() => setTab(id)}
           >
-            {t}
+            {label}
           </button>
         ))}
       </div>
@@ -64,7 +76,7 @@ export function EditPanel(props: Props) {
           <PrimersTab record={record} selection={selection} onError={onError} onRecordChange={onRecordChange} />
         )}
       </div>
-    </div>
+    </aside>
   );
 }
 
@@ -97,12 +109,13 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
 
   return (
     <div className="stack">
-      <section>
-        <h4>Reading frame</h4>
-        <label htmlFor="frame-policy">
-          edits inside a CDS that aren't a multiple of 3 bp
+      <section className="section">
+        <h4 className="section-title">Reading frame</h4>
+        <label className="field" htmlFor="frame-policy">
+          <span>Edits inside a CDS that aren’t a multiple of 3 bp</span>
           <select
             id="frame-policy"
+            className="select"
             value={framePolicy}
             onChange={(e) => setFramePolicy(e.target.value as FramePolicy)}
           >
@@ -120,28 +133,34 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
         )}
       </section>
 
-      <section>
-        <h4>Insert</h4>
-        <label>
-          position
-          <input
-            type="number"
-            value={insertPos}
-            min={0}
-            max={record.length}
-            onChange={(e) => setInsertPos(Number(e.target.value))}
-          />
-        </label>
-        <label>
-          sequence
-          <input
-            value={insertSeq}
-            placeholder="ACGT…"
-            onChange={(e) => setInsertSeq(e.target.value)}
-          />
-        </label>
+      <section className="section">
+        <h4 className="section-title">Insert</h4>
+        <div className="row">
+          <label className="field" style={{ flex: "0 0 96px" }}>
+            <span>Position</span>
+            <input
+              className="input"
+              type="number"
+              value={insertPos}
+              min={0}
+              max={record.length}
+              onChange={(e) => setInsertPos(Number(e.target.value))}
+            />
+          </label>
+          <label className="field">
+            <span>Sequence</span>
+            <input
+              className="input mono"
+              value={insertSeq}
+              placeholder="ACGT…"
+              spellCheck={false}
+              onChange={(e) => setInsertSeq(e.target.value)}
+            />
+          </label>
+        </div>
         <div className="row">
           <button
+            className="btn btn-primary"
             disabled={!insertSeq}
             onClick={() => run(() => api.insert(record.id, insertPos, insertSeq, framePolicy))}
           >
@@ -149,62 +168,84 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
           </button>
           {hasRange && (
             <button
+              className="btn"
               disabled={!insertSeq}
               onClick={() => run(() => api.insert(record.id, spanStart, insertSeq, framePolicy))}
             >
-              Insert at selection start
+              At selection start
             </button>
           )}
         </div>
       </section>
 
-      <section>
-        <h4>Delete / Replace selection</h4>
+      <section className="section">
+        <h4 className="section-title">
+          Delete / replace selection
+          {hasRange && <span className="aside muted num">{spanBp} bp</span>}
+        </h4>
         {hasRange ? (
           <>
-            <p className="muted">
+            <span className="sel-chip">
+              <i className="swatch" />
               {spanStart}–{spanEnd}
-              {wrapping ? " (wraps origin)" : ""} ({spanBp} bp)
-            </p>
+              {wrapping ? " (wraps origin)" : ""}
+            </span>
             <div className="row">
-              <button onClick={() => run(() => api.del(record.id, spanStart, spanEnd, framePolicy))}>
+              <button
+                className="btn btn-danger"
+                onClick={() => run(() => api.del(record.id, spanStart, spanEnd, framePolicy))}
+              >
                 Delete
               </button>
               <button
+                className="btn"
                 disabled={!insertSeq}
+                title={insertSeq ? undefined : "Type a sequence in Insert first"}
                 onClick={() => run(() => api.replace(record.id, spanStart, spanEnd, insertSeq, framePolicy))}
               >
-                Replace with insert seq
+                Replace with insert sequence
               </button>
             </div>
           </>
         ) : (
-          <p className="muted">Select a range in the sequence view (click, then shift-click).</p>
+          <p className="hint">Select a range in the sequence (click, then shift-click) or click a
+            feature.
+          </p>
         )}
       </section>
 
-      <section>
-        <h4>Mutate</h4>
+      <section className="section">
+        <h4 className="section-title">Mutate</h4>
         {selection ? (
-          <div className="row">
-            <span className="muted">base at {selection.start} →</span>
-            <select value={mutBase} onChange={(e) => setMutBase(e.target.value)}>
+          <div className="row" style={{ alignItems: "center" }}>
+            <span className="sel-chip">
+              <i className="swatch" />
+              base {selection.start} →
+            </span>
+            <select
+              className="select"
+              style={{ width: 72 }}
+              value={mutBase}
+              onChange={(e) => setMutBase(e.target.value)}
+              aria-label="New base"
+            >
               {["A", "C", "G", "T", "N"].map((b) => (
                 <option key={b}>{b}</option>
               ))}
             </select>
-            <button onClick={() => run(() => api.mutate(record.id, selection.start, mutBase))}>
+            <button className="btn" onClick={() => run(() => api.mutate(record.id, selection.start, mutBase))}>
               Mutate
             </button>
           </div>
         ) : (
-          <p className="muted">Click a base to pick a position.</p>
+          <p className="hint">Click a base in the sequence to pick a position.
+          </p>
         )}
       </section>
 
-      <section>
-        <h4>Whole record</h4>
-        <button onClick={() => run(() => api.reverseComplement(record.id))}>
+      <section className="section">
+        <h4 className="section-title">Whole record</h4>
+        <button className="btn" onClick={() => run(() => api.reverseComplement(record.id))}>
           Reverse-complement
         </button>
       </section>
@@ -212,7 +253,7 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
   );
 }
 
-function FeaturesTab({ record, onRecordChange, onSelectFeature, onError }: Props) {
+function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onError }: Props) {
   const [annotating, setAnnotating] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("misc_feature");
@@ -250,82 +291,68 @@ function FeaturesTab({ record, onRecordChange, onSelectFeature, onError }: Props
 
   return (
     <div className="stack">
-      <button onClick={annotate} disabled={annotating}>
-        {annotating ? "Annotating…" : "Auto-annotate from library"}
-      </button>
-
-      <section>
-        <h4>Add feature</h4>
-        <label>
-          name
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label>
-          type
-          <select value={type} onChange={(e) => setType(e.target.value)}>
-            {["promoter", "CDS", "terminator", "origin", "tag", "RBS", "misc_feature"].map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </select>
-        </label>
+      <section className="section">
+        <h4 className="section-title">Annotate</h4>
+        <p className="hint">Detect known parts (promoters, CDSs, origins, tags…) from the feature library.</p>
         <div className="row">
-          <label>
-            start
-            <input type="number" value={selStart} onChange={(e) => setSelStart(Number(e.target.value))} />
-          </label>
-          <label>
-            end
-            <input type="number" value={selEnd} onChange={(e) => setSelEnd(Number(e.target.value))} />
-          </label>
+          <button className="btn btn-primary" onClick={annotate} disabled={annotating}>
+            {annotating ? "Annotating…" : "Auto-annotate"}
+          </button>
         </div>
-        <button disabled={!name} onClick={addManual}>
-          Add
-        </button>
       </section>
 
-      <section>
-        <h4>Features ({record.features.length})</h4>
-        <ul className="feature-list">
+      <section className="section">
+        <h4 className="section-title">
+          Features <span className="count">{record.features.length}</span>
+        </h4>
+        <ul className="list">
           {record.features.map((f) => (
-            <li key={f.id} className={editingId === f.id ? "editing" : undefined}>
-              <div className="feature-row">
-                <button className="link" onClick={() => onSelectFeature(f.id)}>
-                  <span className="swatch" style={{ background: f.color || "#9E9E9E" }} />
-                  {f.name}
+            <li
+              key={f.id}
+              className={
+                editingId === f.id ? "editing" : selection?.featureId === f.id ? "selected" : undefined
+              }
+            >
+              <div className="list-row">
+                <button className="feature-name" onClick={() => onSelectFeature(f.id)} title={f.name}>
+                  <span className="swatch" style={{ background: f.color || TYPE_COLORS[f.type] || "#8E949C" }} />
+                  <span className="feature-label">{f.name}</span>
                 </button>
-                <span className="muted">
+                {f.notes?.auto === "true" && f.notes?.identity && (
+                  <span
+                    className="list-sub"
+                    title={`Auto-annotated · ${f.notes.identity} identity · ${f.notes.coverage} coverage`}
+                  >
+                    {f.notes.exact === "true" ? "exact" : `${f.notes.identity} · ${f.notes.coverage}`}
+                  </span>
+                )}
+                <span className="feature-coords">
                   {f.start}–{f.end} {f.strand === 1 ? "+" : "−"}
-                  {f.notes?.auto === "true" && f.notes?.identity && (
-                    <span
-                      className="match-quality"
-                      title={`auto-annotated · ${f.notes.identity} identity · ${f.notes.coverage} coverage`}
-                    >
-                      {f.notes.exact === "true"
-                        ? "exact"
-                        : `${f.notes.identity}·${f.notes.coverage}`}
-                    </span>
-                  )}
                 </span>
-                <button
-                  className="x"
-                  title={editingId === f.id ? "close editor" : "edit"}
-                  onClick={() => setEditingId(editingId === f.id ? null : f.id)}
-                >
-                  ✎
-                </button>
-                <button
-                  className="x"
-                  title="delete"
-                  onClick={async () => {
-                    try {
-                      onRecordChange(await api.deleteFeature(record.id, f.id));
-                    } catch (e) {
-                      onError((e as Error).message);
-                    }
-                  }}
-                >
-                  ×
-                </button>
+                <span className="actions">
+                  <button
+                    className={editingId === f.id ? "icon-btn sm active" : "icon-btn sm"}
+                    title={editingId === f.id ? "Close editor" : "Edit"}
+                    aria-label={editingId === f.id ? "Close editor" : `Edit ${f.name}`}
+                    onClick={() => setEditingId(editingId === f.id ? null : f.id)}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    className="icon-btn sm danger"
+                    title="Delete"
+                    aria-label={`Delete ${f.name}`}
+                    onClick={async () => {
+                      try {
+                        onRecordChange(await api.deleteFeature(record.id, f.id));
+                      } catch (e) {
+                        onError((e as Error).message);
+                      }
+                    }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </span>
               </div>
               {editingId === f.id && (
                 <FeatureEditor
@@ -343,7 +370,64 @@ function FeaturesTab({ record, onRecordChange, onSelectFeature, onError }: Props
               )}
             </li>
           ))}
+          {!record.features.length && (
+            <li className="empty">No features yet — try auto-annotate.</li>
+          )}
         </ul>
+      </section>
+
+      <section className="section">
+        <h4 className="section-title">Add feature</h4>
+        <div className="row">
+          <label className="field">
+            <span>Name</span>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Type</span>
+            <select className="select" value={type} onChange={(e) => setType(e.target.value)}>
+              {["promoter", "CDS", "terminator", "origin", "tag", "RBS", "misc_feature"].map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="row">
+          <label className="field">
+            <span>Start</span>
+            <input
+              className="input"
+              type="number"
+              value={selStart}
+              onChange={(e) => setSelStart(Number(e.target.value))}
+            />
+          </label>
+          <label className="field">
+            <span>End</span>
+            <input
+              className="input"
+              type="number"
+              value={selEnd}
+              onChange={(e) => setSelEnd(Number(e.target.value))}
+            />
+          </label>
+        </div>
+        <div className="row">
+          <button className="btn" disabled={!name} onClick={addManual}>
+            Add feature
+          </button>
+          {selection && selection.start !== selection.end && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setSelStart(selection.wrap ? selection.start : Math.min(selection.start, selection.end));
+                setSelEnd(selection.wrap ? selection.end : Math.max(selection.start, selection.end));
+              }}
+            >
+              Use selection
+            </button>
+          )}
+        </div>
       </section>
     </div>
   );
@@ -372,7 +456,7 @@ function FeatureEditor({
   // takes its color from its type on the maps, so only send `color` when the
   // user actually picks one — otherwise renaming a CDS would pin it to the
   // fallback and override its type color.
-  const [color, setColor] = useState(feature.color || TYPE_COLORS[feature.type] || "#9E9E9E");
+  const [color, setColor] = useState(feature.color || TYPE_COLORS[feature.type] || "#8E949C");
   const [colorTouched, setColorTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -397,32 +481,33 @@ function FeatureEditor({
   };
 
   return (
-    <div className="feature-editor stack">
-      <label>
-        name
-        <input value={name} onChange={(e) => setName(e.target.value)} />
+    <div className="feature-editor">
+      <label className="field">
+        <span>Name</span>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       <div className="row">
-        <label>
-          type
-          <select value={type} onChange={(e) => setType(e.target.value as FeatureType)}>
+        <label className="field">
+          <span>Type</span>
+          <select className="select" value={type} onChange={(e) => setType(e.target.value as FeatureType)}>
             {FEATURE_TYPES.map((t) => (
               <option key={t}>{t}</option>
             ))}
           </select>
         </label>
-        <label>
-          strand
-          <select value={strand} onChange={(e) => setStrand(Number(e.target.value))}>
+        <label className="field" style={{ flex: "0 0 72px" }}>
+          <span>Strand</span>
+          <select className="select" value={strand} onChange={(e) => setStrand(Number(e.target.value))}>
             <option value={1}>+</option>
             <option value={-1}>−</option>
           </select>
         </label>
       </div>
       <div className="row">
-        <label>
-          start
+        <label className="field">
+          <span>Start</span>
           <input
+            className="input"
             type="number"
             value={start}
             min={0}
@@ -430,9 +515,10 @@ function FeatureEditor({
             onChange={(e) => setStart(Number(e.target.value))}
           />
         </label>
-        <label>
-          end
+        <label className="field">
+          <span>End</span>
           <input
+            className="input"
             type="number"
             value={end}
             min={0}
@@ -440,9 +526,10 @@ function FeatureEditor({
             onChange={(e) => setEnd(Number(e.target.value))}
           />
         </label>
-        <label>
-          color
+        <label className="field" style={{ flex: "none" }}>
+          <span>Color</span>
           <input
+            className="input"
             type="color"
             value={color}
             onChange={(e) => {
@@ -453,13 +540,14 @@ function FeatureEditor({
         </label>
       </div>
       {record.isCircular && end < start && (
-        <p className="muted small">end &lt; start: this feature wraps the origin.</p>
+        <p className="hint">End &lt; start: this feature wraps the origin.
+        </p>
       )}
       <div className="row">
-        <button onClick={save} disabled={saving || !name}>
-          {saving ? "Saving…" : "Save"}
+        <button className="btn btn-primary btn-sm" onClick={save} disabled={saving || !name}>
+          {saving ? "Saving…" : "Save changes"}
         </button>
-        <button className="link" onClick={onDone}>
+        <button className="btn btn-ghost btn-sm" onClick={onDone}>
           Cancel
         </button>
       </div>
@@ -485,27 +573,40 @@ function OrfsTab({ record, onError }: { record: PlasmidRecord; onError: (m: stri
 
   return (
     <div className="stack">
-      <div className="row">
-        <label>
-          min aa
-          <input type="number" value={minAa} onChange={(e) => setMinAa(Number(e.target.value))} />
-        </label>
-        <button onClick={load} disabled={loading}>
-          {loading ? "…" : "Find ORFs"}
-        </button>
-      </div>
-      <ul className="feature-list">
+      <section className="section">
+        <h4 className="section-title">Six-frame ORF search</h4>
+        <div className="row">
+          <label className="field">
+            <span>Minimum length (aa)</span>
+            <input
+              className="input"
+              type="number"
+              value={minAa}
+              onChange={(e) => setMinAa(Number(e.target.value))}
+            />
+          </label>
+          <button className="btn btn-primary" onClick={load} disabled={loading}>
+            {loading ? "Searching…" : "Find ORFs"}
+          </button>
+        </div>
+      </section>
+      <ul className="list">
         {orfs.map((o, i) => (
           <li key={i}>
-            <span>
-              {o.start}–{o.end} {o.strand === 1 ? "+" : "−"} f{o.frame}
-            </span>
-            <span className="muted">
-              {o.length_bp} bp / {o.protein.length} aa
+            <div className="list-row">
+              <span className="grow mono">
+                {o.start}–{o.end}
+              </span>
+              <span className="list-sub">
+                {o.strand === 1 ? "+" : "−"} strand · frame {o.frame}
+              </span>
+            </div>
+            <span className="list-sub">
+              {o.length_bp.toLocaleString()} bp · {o.protein.length} aa
             </span>
           </li>
         ))}
-        {!orfs.length && <li className="muted">No ORFs loaded.</li>}
+        {!orfs.length && <li className="empty">No ORFs loaded yet.</li>}
       </ul>
     </div>
   );
@@ -540,33 +641,67 @@ function EnzymesTab(props: Props) {
 
   return (
     <div className="stack">
-      <label>
-        enzymes (comma-separated)
-        <input value={enzymeInput} onChange={(e) => setEnzymeInput(e.target.value)} />
-      </label>
-      <div className="row">
-        <button onClick={runDigest} disabled={!enzymes.length}>
-          Map &amp; digest
-        </button>
-        <button onClick={loadUnique}>Unique cutters</button>
-      </div>
+      <section className="section">
+        <h4 className="section-title">Restriction map</h4>
+        <label className="field">
+          <span>Enzymes (comma-separated)</span>
+          <input
+            className="input mono"
+            value={enzymeInput}
+            spellCheck={false}
+            onChange={(e) => setEnzymeInput(e.target.value)}
+          />
+        </label>
+        <div className="row">
+          <button className="btn btn-primary" onClick={runDigest} disabled={!enzymes.length}>
+            Map &amp; digest
+          </button>
+          <button className="btn" onClick={loadUnique}>
+            Unique cutters
+          </button>
+        </div>
+      </section>
       {digest.length > 0 && (
-        <section>
-          <h4>Fragments</h4>
-          <ul className="feature-list">
+        <section className="section">
+          <h4 className="section-title">
+            Fragments <span className="count">{digest.length}</span>
+          </h4>
+          <ul className="list">
             {digest.map((d) => (
               <li key={d.enzyme}>
-                <span>{d.enzyme}</span>
-                <span className="muted">{d.fragment_sizes.join(", ")} bp</span>
+                <div className="list-row">
+                  <span className="grow">{d.enzyme}</span>
+                  <span className="list-sub" title={`${d.fragment_sizes.length} fragment(s)`}>
+                    {d.fragment_sizes.map((n) => n.toLocaleString()).join(" + ")} bp
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
         </section>
       )}
       {unique.length > 0 && (
-        <section>
-          <h4>Unique cutters ({unique.length})</h4>
-          <p className="muted small">{unique.join(", ")}</p>
+        <section className="section">
+          <h4 className="section-title">
+            Unique cutters <span className="count">{unique.length}</span>
+          </h4>
+          <div className="kv">
+            {unique.map((u) => (
+              <button
+                key={u}
+                className="tag"
+                title={`Add ${u} to the map`}
+                onClick={() => {
+                  if (!enzymes.includes(u)) setEnzymeInput([...enzymes, u].join(", "));
+                }}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+          <p className="field-hint" style={{ margin: 0 }}>
+            Click an enzyme to add it to the map.
+          </p>
         </section>
       )}
     </div>
@@ -585,7 +720,7 @@ function PrimersTab({
   onRecordChange: (r: PlasmidRecord) => void;
 }) {
   const [pair, setPair] = useState<{ forward: Primer; reverse: Primer } | null>(null);
-  const [analysis, setAnalysis] = useState<string>("");
+  const [analysis, setAnalysis] = useState<PrimerAnalysis | null>(null);
   const [oligo, setOligo] = useState("");
 
   const selLo = selection ? Math.min(selection.start, selection.end) : 0;
@@ -603,11 +738,7 @@ function PrimersTab({
 
   const analyze = async () => {
     try {
-      const a = await api.analyzePrimer(oligo);
-      setAnalysis(
-        `Tm ${a.tm}°C · GC ${a.gc_content}% · ${a.length} nt` +
-          (a.warnings.length ? ` · ⚠ ${a.warnings.join("; ")}` : " · ✓"),
-      );
+      setAnalysis(await api.analyzePrimer(oligo));
     } catch (e) {
       onError((e as Error).message);
     }
@@ -615,37 +746,78 @@ function PrimersTab({
 
   return (
     <div className="stack">
-      <section>
-        <h4>Design pair over selection</h4>
+      <section className="section">
+        <h4 className="section-title">Design a pair over the selection</h4>
         {selHi > selLo ? (
-          <button onClick={design}>
+          <button className="btn btn-primary" onClick={design}>
             Design primers for {selLo}–{selHi}
           </button>
         ) : (
-          <p className="muted">Select a target region first.</p>
+          <p className="hint">Select a target region first.
+          </p>
         )}
         {pair && (
-          <ul className="feature-list">
+          <ul className="list">
             {[pair.forward, pair.reverse].map((p) => (
               <li key={p.id}>
-                <span>
-                  {p.name}: <code>{p.sequence}</code>
-                </span>
-                <span className="muted">
-                  Tm {p.tm}°C · GC {p.gcContent}%
-                </span>
+                <div className="list-row">
+                  <span className="grow" style={{ fontWeight: 600 }}>
+                    {p.name}
+                  </span>
+                  <span className="list-sub">
+                    Tm {p.tm}°C · GC {p.gcContent}%
+                  </span>
+                </div>
+                <code className="primer-seq">{p.sequence}</code>
               </li>
             ))}
           </ul>
         )}
       </section>
-      <section>
-        <h4>Analyze oligo</h4>
-        <input value={oligo} placeholder="ACGT…" onChange={(e) => setOligo(e.target.value)} />
-        <button disabled={!oligo} onClick={analyze}>
-          Analyze
-        </button>
-        {analysis && <p className="muted small">{analysis}</p>}
+      <section className="section">
+        <h4 className="section-title">Analyze an oligo</h4>
+        <div className="row">
+          <label className="field">
+            <span>Sequence</span>
+            <input
+              className="input mono"
+              value={oligo}
+              placeholder="ACGT…"
+              spellCheck={false}
+              onChange={(e) => setOligo(e.target.value)}
+            />
+          </label>
+          <button className="btn btn-primary" disabled={!oligo} onClick={analyze}>
+            Analyze
+          </button>
+        </div>
+        {analysis && (
+          <>
+            <div className="stats">
+              <div className="stat">
+                <b>{analysis.tm}°C</b>
+                <span>Melting temp</span>
+              </div>
+              <div className="stat">
+                <b>{analysis.gc_content}%</b>
+                <span>GC content</span>
+              </div>
+              <div className="stat">
+                <b>{analysis.length} nt</b>
+                <span>Length</span>
+              </div>
+            </div>
+            {analysis.warnings.length ? (
+              <div className="notice">
+                {analysis.warnings.map((w, i) => (
+                  <p key={i}>{w}</p>
+                ))}
+              </div>
+            ) : (
+              <span className="ok-text">No hairpin or dimer issues found.</span>
+            )}
+          </>
+        )}
       </section>
     </div>
   );

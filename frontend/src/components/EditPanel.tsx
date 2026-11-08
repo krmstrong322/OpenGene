@@ -1,21 +1,5 @@
 import { useState } from "react";
-import {
-  Activity,
-  ArrowLeftRight,
-  Check,
-  FlaskConical,
-  Info,
-  PenLine,
-  Pencil,
-  Plus,
-  Scissors,
-  Tags,
-  Trash2,
-  TriangleAlert,
-  Waypoints,
-  WandSparkles,
-  type LucideIcon,
-} from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { selectionLength } from "../lib/selection";
 import { TYPE_COLORS } from "../lib/types";
@@ -56,12 +40,12 @@ interface Props {
 
 type Tab = "edit" | "features" | "orfs" | "enzymes" | "primers";
 
-const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
-  { id: "edit", label: "Edit", icon: PenLine },
-  { id: "features", label: "Features", icon: Tags },
-  { id: "orfs", label: "ORFs", icon: Activity },
-  { id: "enzymes", label: "Enzymes", icon: Scissors },
-  { id: "primers", label: "Primers", icon: Waypoints },
+const TABS: { id: Tab; label: string }[] = [
+  { id: "edit", label: "Edit" },
+  { id: "features", label: "Features" },
+  { id: "orfs", label: "ORFs" },
+  { id: "enzymes", label: "Enzymes" },
+  { id: "primers", label: "Primers" },
 ];
 
 export function EditPanel(props: Props) {
@@ -69,9 +53,9 @@ export function EditPanel(props: Props) {
   const [tab, setTab] = useState<Tab>("edit");
 
   return (
-    <div className="panel card">
+    <aside className="panel">
       <div className="tabs" role="tablist">
-        {TABS.map(({ id, label, icon: Icon }) => (
+        {TABS.map(({ id, label }) => (
           <button
             key={id}
             role="tab"
@@ -79,7 +63,6 @@ export function EditPanel(props: Props) {
             className={tab === id ? "tab active" : "tab"}
             onClick={() => setTab(id)}
           >
-            <Icon size={16} />
             {label}
           </button>
         ))}
@@ -93,7 +76,7 @@ export function EditPanel(props: Props) {
           <PrimersTab record={record} selection={selection} onError={onError} onRecordChange={onRecordChange} />
         )}
       </div>
-    </div>
+    </aside>
   );
 }
 
@@ -143,12 +126,9 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
         </label>
         {warnings.length > 0 && (
           <div className="notice" role="status">
-            <TriangleAlert size={15} />
-            <div>
-              {warnings.map((w, i) => (
-                <p key={i}>{w}</p>
-              ))}
-            </div>
+            {warnings.map((w, i) => (
+              <p key={i}>{w}</p>
+            ))}
           </div>
         )}
       </section>
@@ -184,7 +164,7 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
             disabled={!insertSeq}
             onClick={() => run(() => api.insert(record.id, insertPos, insertSeq, framePolicy))}
           >
-            <Plus size={15} /> Insert at {insertPos}
+            Insert at {insertPos}
           </button>
           {hasRange && (
             <button
@@ -201,7 +181,7 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
       <section className="section">
         <h4 className="section-title">
           Delete / replace selection
-          {hasRange && <span className="badge mono">{spanBp} bp</span>}
+          {hasRange && <span className="aside muted num">{spanBp} bp</span>}
         </h4>
         {hasRange ? (
           <>
@@ -215,7 +195,7 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
                 className="btn btn-danger"
                 onClick={() => run(() => api.del(record.id, spanStart, spanEnd, framePolicy))}
               >
-                <Trash2 size={14} /> Delete
+                Delete
               </button>
               <button
                 className="btn"
@@ -228,8 +208,7 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
             </div>
           </>
         ) : (
-          <p className="hint">
-            <Info size={15} /> Select a range in the sequence (click, then shift-click) or click a
+          <p className="hint">Select a range in the sequence (click, then shift-click) or click a
             feature.
           </p>
         )}
@@ -259,8 +238,7 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
             </button>
           </div>
         ) : (
-          <p className="hint">
-            <Info size={15} /> Click a base in the sequence to pick a position.
+          <p className="hint">Click a base in the sequence to pick a position.
           </p>
         )}
       </section>
@@ -268,7 +246,7 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
       <section className="section">
         <h4 className="section-title">Whole record</h4>
         <button className="btn" onClick={() => run(() => api.reverseComplement(record.id))}>
-          <ArrowLeftRight size={15} /> Reverse-complement
+          Reverse-complement
         </button>
       </section>
     </div>
@@ -313,10 +291,15 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
 
   return (
     <div className="stack">
-      <button className="btn btn-primary btn-lg btn-block" onClick={annotate} disabled={annotating}>
-        <WandSparkles size={16} />
-        {annotating ? "Annotating…" : "Auto-annotate from library"}
-      </button>
+      <section className="section">
+        <h4 className="section-title">Annotate</h4>
+        <p className="hint">Detect known parts (promoters, CDSs, origins, tags…) from the feature library.</p>
+        <div className="row">
+          <button className="btn btn-primary" onClick={annotate} disabled={annotating}>
+            {annotating ? "Annotating…" : "Auto-annotate"}
+          </button>
+        </div>
+      </section>
 
       <section className="section">
         <h4 className="section-title">
@@ -332,21 +315,15 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
             >
               <div className="list-row">
                 <button className="feature-name" onClick={() => onSelectFeature(f.id)} title={f.name}>
-                  <span className="swatch" style={{ background: f.color || TYPE_COLORS[f.type] || "#9E9E9E" }} />
+                  <span className="swatch" style={{ background: f.color || TYPE_COLORS[f.type] || "#8E949C" }} />
                   <span className="feature-label">{f.name}</span>
                 </button>
                 {f.notes?.auto === "true" && f.notes?.identity && (
                   <span
-                    className="badge mono"
-                    title={`auto-annotated · ${f.notes.identity} identity · ${f.notes.coverage} coverage`}
+                    className="list-sub"
+                    title={`Auto-annotated · ${f.notes.identity} identity · ${f.notes.coverage} coverage`}
                   >
-                    {f.notes.exact === "true" ? (
-                      <>
-                        <Check size={10} /> exact
-                      </>
-                    ) : (
-                      `${f.notes.identity}·${f.notes.coverage}`
-                    )}
+                    {f.notes.exact === "true" ? "exact" : `${f.notes.identity} · ${f.notes.coverage}`}
                   </span>
                 )}
                 <span className="feature-coords">
@@ -437,7 +414,7 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
         </div>
         <div className="row">
           <button className="btn" disabled={!name} onClick={addManual}>
-            <Plus size={15} /> Add feature
+            Add feature
           </button>
           {selection && selection.start !== selection.end && (
             <button
@@ -479,7 +456,7 @@ function FeatureEditor({
   // takes its color from its type on the maps, so only send `color` when the
   // user actually picks one — otherwise renaming a CDS would pin it to the
   // fallback and override its type color.
-  const [color, setColor] = useState(feature.color || TYPE_COLORS[feature.type] || "#9E9E9E");
+  const [color, setColor] = useState(feature.color || TYPE_COLORS[feature.type] || "#8E949C");
   const [colorTouched, setColorTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -563,8 +540,7 @@ function FeatureEditor({
         </label>
       </div>
       {record.isCircular && end < start && (
-        <p className="hint">
-          <Info size={15} /> End &lt; start: this feature wraps the origin.
+        <p className="hint">End &lt; start: this feature wraps the origin.
         </p>
       )}
       <div className="row">
@@ -610,7 +586,7 @@ function OrfsTab({ record, onError }: { record: PlasmidRecord; onError: (m: stri
             />
           </label>
           <button className="btn btn-primary" onClick={load} disabled={loading}>
-            <Activity size={15} /> {loading ? "Searching…" : "Find ORFs"}
+            {loading ? "Searching…" : "Find ORFs"}
           </button>
         </div>
       </section>
@@ -621,8 +597,9 @@ function OrfsTab({ record, onError }: { record: PlasmidRecord; onError: (m: stri
               <span className="grow mono">
                 {o.start}–{o.end}
               </span>
-              <span className="badge">{o.strand === 1 ? "+" : "−"} strand</span>
-              <span className="badge">frame {o.frame}</span>
+              <span className="list-sub">
+                {o.strand === 1 ? "+" : "−"} strand · frame {o.frame}
+              </span>
             </div>
             <span className="list-sub">
               {o.length_bp.toLocaleString()} bp · {o.protein.length} aa
@@ -677,7 +654,7 @@ function EnzymesTab(props: Props) {
         </label>
         <div className="row">
           <button className="btn btn-primary" onClick={runDigest} disabled={!enzymes.length}>
-            <Scissors size={15} /> Map &amp; digest
+            Map &amp; digest
           </button>
           <button className="btn" onClick={loadUnique}>
             Unique cutters
@@ -693,19 +670,10 @@ function EnzymesTab(props: Props) {
             {digest.map((d) => (
               <li key={d.enzyme}>
                 <div className="list-row">
-                  <span className="grow" style={{ fontWeight: 600 }}>
-                    {d.enzyme}
+                  <span className="grow">{d.enzyme}</span>
+                  <span className="list-sub" title={`${d.fragment_sizes.length} fragment(s)`}>
+                    {d.fragment_sizes.map((n) => n.toLocaleString()).join(" + ")} bp
                   </span>
-                  <span className="list-sub">
-                    {d.fragment_sizes.length} fragment{d.fragment_sizes.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <div className="kv">
-                  {d.fragment_sizes.map((n, i) => (
-                    <span key={i} className="badge mono">
-                      {n.toLocaleString()} bp
-                    </span>
-                  ))}
                 </div>
               </li>
             ))}
@@ -721,8 +689,7 @@ function EnzymesTab(props: Props) {
             {unique.map((u) => (
               <button
                 key={u}
-                className="badge accent"
-                style={{ border: "none", cursor: "pointer" }}
+                className="tag"
                 title={`Add ${u} to the map`}
                 onClick={() => {
                   if (!enzymes.includes(u)) setEnzymeInput([...enzymes, u].join(", "));
@@ -783,11 +750,10 @@ function PrimersTab({
         <h4 className="section-title">Design a pair over the selection</h4>
         {selHi > selLo ? (
           <button className="btn btn-primary" onClick={design}>
-            <Waypoints size={15} /> Design primers for {selLo}–{selHi}
+            Design primers for {selLo}–{selHi}
           </button>
         ) : (
-          <p className="hint">
-            <Info size={15} /> Select a target region first.
+          <p className="hint">Select a target region first.
           </p>
         )}
         {pair && (
@@ -798,8 +764,9 @@ function PrimersTab({
                   <span className="grow" style={{ fontWeight: 600 }}>
                     {p.name}
                   </span>
-                  <span className="badge mono">Tm {p.tm}°C</span>
-                  <span className="badge mono">GC {p.gcContent}%</span>
+                  <span className="list-sub">
+                    Tm {p.tm}°C · GC {p.gcContent}%
+                  </span>
                 </div>
                 <code className="primer-seq">{p.sequence}</code>
               </li>
@@ -821,11 +788,11 @@ function PrimersTab({
             />
           </label>
           <button className="btn btn-primary" disabled={!oligo} onClick={analyze}>
-            <FlaskConical size={15} /> Analyze
+            Analyze
           </button>
         </div>
         {analysis && (
-          <div className="result">
+          <>
             <div className="stats">
               <div className="stat">
                 <b>{analysis.tm}°C</b>
@@ -842,19 +809,14 @@ function PrimersTab({
             </div>
             {analysis.warnings.length ? (
               <div className="notice">
-                <TriangleAlert size={15} />
-                <div>
-                  {analysis.warnings.map((w, i) => (
-                    <p key={i}>{w}</p>
-                  ))}
-                </div>
+                {analysis.warnings.map((w, i) => (
+                  <p key={i}>{w}</p>
+                ))}
               </div>
             ) : (
-              <span className="ok-text inline">
-                <Check size={14} /> No issues found
-              </span>
+              <span className="ok-text">No hairpin or dimer issues found.</span>
             )}
-          </div>
+          </>
         )}
       </section>
     </div>

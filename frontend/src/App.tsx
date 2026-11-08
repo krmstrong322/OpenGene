@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlignLeft, CircleAlert, CircleDot, Rows3, X } from "lucide-react";
+import { X } from "lucide-react";
 import { CircularMap } from "./components/CircularMap";
 import { EditPanel } from "./components/EditPanel";
 import { LinearMap } from "./components/LinearMap";
@@ -238,7 +238,7 @@ export default function App() {
     if (!record) return [];
     const seen = new Map<string, string>();
     for (const f of record.features) {
-      if (!seen.has(f.type)) seen.set(f.type, TYPE_COLORS[f.type] || "#9E9E9E");
+      if (!seen.has(f.type)) seen.set(f.type, TYPE_COLORS[f.type] || "#8E949C");
     }
     return Array.from(seen, ([type, color]) => ({ type, color }));
   }, [record]);
@@ -280,31 +280,29 @@ export default function App() {
         />
       ) : (
         <main className="workspace">
-          <div className="maps">
-            <section className="card">
-              <div className="card-head">
-                <h3 className="card-title">
-                  <CircleDot size={15} /> Plasmid map
-                </h3>
+          <div className="main-pane">
+            <section className="pane">
+              <div className="pane-head">
+                <h3 className="pane-title">Map</h3>
                 <div className="map-controls">
-                  <label className="switch">
+                  <label className="check">
                     <input
                       type="checkbox"
                       checked={showPrimers}
                       onChange={(e) => setShowPrimers(e.target.checked)}
                     />
-                    Primers <span className="count">{record.primers.length}</span>
+                    Primers <span className="muted num">{record.primers.length}</span>
                   </label>
-                  <label className="switch">
+                  <label className="check">
                     <input
                       type="checkbox"
                       checked={showOrfs}
                       onChange={(e) => setShowOrfs(e.target.checked)}
                     />
-                    ORFs {showOrfs && <span className="count">{orfs.length}</span>}
+                    ORFs {showOrfs && <span className="muted num">{orfs.length}</span>}
                   </label>
                   {showOrfs && (
-                    <label className="inline muted small">
+                    <label className="check">
                       min aa
                       <input
                         type="number"
@@ -317,7 +315,7 @@ export default function App() {
                   )}
                 </div>
               </div>
-              <div className="card-body">
+              <div className="pane-body">
                 <CircularMap
                   record={record}
                   cutSites={cutSites}
@@ -347,13 +345,11 @@ export default function App() {
               )}
             </section>
 
-            <section className="card">
-              <div className="card-head">
-                <h3 className="card-title">
-                  <Rows3 size={15} /> Linear map
-                </h3>
+            <section className="pane">
+              <div className="pane-head">
+                <h3 className="pane-title">Linear view</h3>
               </div>
-              <div className="card-body">
+              <div className="pane-body">
                 <LinearMap
                   record={record}
                   cutSites={cutSites}
@@ -368,15 +364,13 @@ export default function App() {
               </div>
             </section>
 
-            <section className="card">
-              <div className="card-head">
-                <h3 className="card-title">
-                  <AlignLeft size={15} /> Sequence
-                </h3>
+            <section className="pane">
+              <div className="pane-head">
+                <h3 className="pane-title">Sequence</h3>
                 <span className="spacer" />
-                <span className="muted small">Click a base, shift-click to extend</span>
+                <span className="meta">Click a base; shift-click to extend</span>
               </div>
-              <div className="card-body flush">
+              <div className="pane-body flush">
                 <SequenceViewer
                   record={record}
                   selection={selection}
@@ -387,19 +381,17 @@ export default function App() {
             </section>
           </div>
 
-          <aside className="side">
-            <EditPanel
-              record={record}
-              selection={selection}
-              cutSites={cutSites}
-              onRecordChange={setRecord}
-              onSelectFeature={selectFeatureById}
-              onError={setError}
-              onReloadCutSites={reloadCutSites}
-              enzymeInput={enzymeInput}
-              setEnzymeInput={setEnzymeInput}
-            />
-          </aside>
+          <EditPanel
+            record={record}
+            selection={selection}
+            cutSites={cutSites}
+            onRecordChange={setRecord}
+            onSelectFeature={selectFeatureById}
+            onError={setError}
+            onReloadCutSites={reloadCutSites}
+            enzymeInput={enzymeInput}
+            setEnzymeInput={setEnzymeInput}
+          />
         </main>
       )}
 
@@ -419,13 +411,9 @@ export default function App() {
 
       {error && (
         <div className="toast" role="alert">
-          <CircleAlert size={18} className="toast-icon" />
-          <div className="toast-body">
-            <div className="toast-title">Something went wrong</div>
-            <div className="muted">{error}</div>
-          </div>
+          <div className="toast-body">{error}</div>
           <button className="icon-btn sm" onClick={() => setError(null)} aria-label="Dismiss">
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
       )}
@@ -454,7 +442,11 @@ function StatusBar({
     <footer className="statusbar">
       <span className="item">
         <span className={online ? "dot ok" : status === "connecting…" ? "dot" : "dot bad"} />
-        {online ? `Engine ${status.replace("backend ", "v")}` : status === "connecting…" ? "Connecting…" : "Engine offline"}
+        {online
+          ? `Engine ${status.replace("backend ", "")}`
+          : status === "connecting…"
+            ? "Connecting…"
+            : "Engine offline"}
       </span>
       {record && (
         <>

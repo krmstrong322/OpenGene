@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardPaste, Clock, FlaskConical, Search, Sparkles, Trash2, Upload } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import type { PlasmidRecord, RecordSummary } from "../lib/types";
-import { PlasmidGlyph } from "./PlasmidGlyph";
 
 interface Props {
   onOpen: (r: PlasmidRecord) => void;
@@ -12,12 +11,15 @@ interface Props {
   onError: (msg: string) => void;
 }
 
-// The start screen: quick actions, then every plasmid saved on this computer,
-// newest first.
+type SortKey = "name" | "length" | "featureCount" | "updatedAt";
+
+// The start screen: every plasmid saved on this computer, as a sortable table
+// (most recently edited first by default).
 export function RecordLibrary({ onOpen, onDemo, onNew, onImport, onError }: Props) {
   const [rows, setRows] = useState<RecordSummary[] | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "updatedAt", desc: true });
 
   const load = () =>
     api
@@ -52,152 +54,150 @@ export function RecordLibrary({ onOpen, onDemo, onNew, onImport, onError }: Prop
   };
 
   const shown = useMemo(() => {
+    if (!rows) return null;
     const q = query.trim().toLowerCase();
-    return rows && q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
-  }, [rows, query]);
+    const list = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : [...rows];
+    const dir = sort.desc ? -1 : 1;
+    list.sort((a, b) => {
+      const x = a[sort.key];
+      const y = b[sort.key];
+      const c = typeof x === "string" ? x.localeCompare(y as string) : (x as number) - (y as number);
+      return c * dir;
+    });
+    return list;
+  }, [rows, query, sort]);
+
+  const header = (key: SortKey, label: string, className = "") => (
+    <th
+      className={`sortable ${className}`}
+      onClick={() =>
+        setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "name" }))
+      }
+      aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined}
+    >
+      {label}
+      <span className="arrow">{sort.key === key ? (sort.desc ? "↓" : "↑") : ""}</span>
+    </th>
+  );
 
   return (
     <main className="library">
-      <div className="hero">
-        <div>
-          <div className="eyebrow">
-            <FlaskConical size={14} /> Plasmid workspace
-          </div>
-          <h1>Your plasmids</h1>
-          <p>
-            Design, annotate and edit constructs. Everything you open is saved on this computer
-            automatically.
-          </p>
-        </div>
-      </div>
-
-      <div className="quick-actions">
-        <button className="quick" onClick={onImport}>
-          <span className="quick-icon">
-            <Upload size={18} />
-          </span>
-          <span>
-            <span className="quick-title">Import a file</span>
-            <span className="quick-desc">GenBank, FASTA, EMBL or SnapGene .dna</span>
-          </span>
-        </button>
-        <button className="quick" onClick={onNew}>
-          <span className="quick-icon green">
-            <ClipboardPaste size={18} />
-          </span>
-          <span>
-            <span className="quick-title">Paste a sequence</span>
-            <span className="quick-desc">Start a new construct from raw DNA</span>
-          </span>
-        </button>
-        <button className="quick" onClick={onDemo}>
-          <span className="quick-icon amber">
-            <Sparkles size={18} />
-          </span>
-          <span>
-            <span className="quick-title">Load the demo</span>
-            <span className="quick-desc">T7 · 6×His · TEV · EGFP, auto-annotated</span>
-          </span>
-        </button>
-      </div>
-
-      <div className="section-head">
-        <h2>Saved</h2>
-        {rows && rows.length > 0 && <span className="count">{rows.length}</span>}
-        <span className="spacer" />
-        {rows && rows.length > 0 && (
+      <div className="library-inner">
+        <div className="library-bar">
+          <h1>Library</h1>
+          {rows && rows.length > 0 && <span className="muted">{rows.length}</span>}
+          <span className="spacer" />
           <div className="search">
-            <Search size={15} />
+            <Search size={13} />
             <input
               className="input"
-              placeholder="Search plasmids"
+              placeholder="Filter by name"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search plasmids"
+              aria-label="Filter plasmids by name"
             />
           </div>
-        )}
-      </div>
-
-      {rows === null && (
-        <div className="record-grid">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="skeleton" />
-          ))}
+          <button className="btn" onClick={onDemo}>
+            Open demo
+          </button>
+          <button className="btn" onClick={onNew}>
+            New sequence
+          </button>
+          <button className="btn btn-primary" onClick={onImport}>
+            Import…
+          </button>
         </div>
-      )}
 
-      {rows !== null && rows.length === 0 && (
-        <div className="empty-state">
-          <PlasmidGlyph seed="opengene" circular size={56} />
-          <h3>No plasmids yet</h3>
-          <p>Import a file, paste a sequence, or load the demo construct to get started.</p>
-        </div>
-      )}
-
-      {shown && rows && rows.length > 0 && shown.length === 0 && (
-        <div className="empty-state">
-          <h3>No matches</h3>
-          <p>Nothing in your library matches “{query}”.</p>
-        </div>
-      )}
-
-      {shown && shown.length > 0 && (
-        <ul className="record-grid">
-          {shown.map((r, i) => (
-            <li key={r.id} className="record-card" style={{ animationDelay: `${Math.min(i, 12) * 25}ms` }}>
-              <button className="record-open" onClick={() => open(r.id)}>
-                <span className="record-glyph">
-                  <PlasmidGlyph seed={r.id} circular={r.isCircular} />
-                </span>
-                <span className="record-meta">
-                  <span className="record-name" title={r.name}>
+        <table className="table">
+          <thead>
+            <tr>
+              {header("name", "Name")}
+              {header("length", "Length", "right")}
+              <th className="hide-sm">Topology</th>
+              {header("featureCount", "Features", "right hide-md")}
+              {header("updatedAt", "Modified", "hide-sm")}
+              <th aria-label="Actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {shown?.map((r) => (
+              <tr key={r.id} onClick={() => confirmId !== r.id && open(r.id)}>
+                <td>
+                  <span className="name-cell" title={r.name}>
+                    <TopologyIcon circular={r.isCircular} />
                     {r.name}
                   </span>
-                  <span className="record-tags">
-                    <span className="badge mono">{r.length.toLocaleString()} bp</span>
-                    <span className="badge">{r.isCircular ? "circular" : "linear"}</span>
-                    <span className="badge">
-                      {r.featureCount} feature{r.featureCount === 1 ? "" : "s"}
+                </td>
+                <td className="right">{r.length.toLocaleString()} bp</td>
+                <td className="muted hide-sm">{r.isCircular ? "Circular" : "Linear"}</td>
+                <td className="right hide-md">{r.featureCount}</td>
+                <td className="muted hide-sm" title={new Date(r.updatedAt * 1000).toLocaleString()}>
+                  {formatDate(r.updatedAt)}
+                </td>
+                <td className="row-actions" onClick={(e) => e.stopPropagation()}>
+                  {confirmId === r.id ? (
+                    <span className="confirm">
+                      Delete?
+                      <button className="btn btn-sm btn-danger" onClick={() => remove(r.id)}>
+                        Delete
+                      </button>
+                      <button className="btn btn-sm" onClick={() => setConfirmId(null)} autoFocus>
+                        Cancel
+                      </button>
                     </span>
-                  </span>
-                  <span className="record-time">
-                    <Clock size={11} /> Edited {timeAgo(r.updatedAt)}
-                  </span>
-                </span>
-              </button>
-              <button
-                className="icon-btn sm danger record-del"
-                title={`Delete ${r.name}`}
-                aria-label={`Delete ${r.name}`}
-                onClick={() => setConfirmId(r.id)}
-              >
-                <Trash2 size={14} />
-              </button>
-              {confirmId === r.id && (
-                <div className="record-confirm">
-                  Delete this plasmid?
-                  <button className="btn btn-sm btn-danger" onClick={() => remove(r.id)}>
-                    Delete
-                  </button>
-                  <button className="btn btn-sm" onClick={() => setConfirmId(null)} autoFocus>
-                    Keep
-                  </button>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+                  ) : (
+                    <button
+                      className="icon-btn sm danger"
+                      title={`Delete ${r.name}`}
+                      aria-label={`Delete ${r.name}`}
+                      onClick={() => setConfirmId(r.id)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {rows === null && <div className="table-empty">Loading…</div>}
+        {rows !== null && rows.length === 0 && (
+          <div className="table-empty">
+            <strong>No plasmids saved yet</strong>
+            Import a GenBank, FASTA, EMBL or SnapGene file, paste a sequence, or open the demo
+            construct.
+          </div>
+        )}
+        {rows !== null && rows.length > 0 && shown?.length === 0 && (
+          <div className="table-empty">No plasmids match “{query}”.</div>
+        )}
+
+        <p className="library-foot">Plasmids are saved on this computer automatically.</p>
+      </div>
     </main>
   );
 }
 
-function timeAgo(seconds: number): string {
-  const diff = Date.now() / 1000 - seconds;
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} h ago`;
-  if (diff < 7 * 86400) return `${Math.floor(diff / 86400)} d ago`;
-  return new Date(seconds * 1000).toLocaleDateString();
+function TopologyIcon({ circular }: { circular: boolean }) {
+  return (
+    <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true">
+      {circular ? (
+        <circle cx={7} cy={7} r={5} fill="none" stroke="currentColor" strokeWidth={1.4} />
+      ) : (
+        <path d="M2 4.5v5M2 7h10M12 4.5v5" fill="none" stroke="currentColor" strokeWidth={1.4} />
+      )}
+    </svg>
+  );
+}
+
+function formatDate(seconds: number): string {
+  const d = new Date(seconds * 1000);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return `Today, ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
 }

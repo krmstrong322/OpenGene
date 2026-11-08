@@ -31,14 +31,14 @@ from .sequence import reverse_complement
 
 # Color per feature type for the frontend map.
 TYPE_COLORS = {
-    "promoter": "#4CAF50",
-    "CDS": "#2196F3",
-    "terminator": "#F44336",
-    "origin": "#FF9800",
-    "primer": "#9C27B0",
-    "tag": "#00BCD4",
-    "RBS": "#8BC34A",
-    "misc_feature": "#9E9E9E",
+    "promoter": "#4C9A6A",
+    "CDS": "#4A78B5",
+    "terminator": "#C0533F",
+    "origin": "#D08C2E",
+    "primer": "#7E5BB0",
+    "tag": "#2D9396",
+    "RBS": "#8AA84B",
+    "misc_feature": "#8E949C",
 }
 
 SEED = 12  # k-mer length for seeding; parts shorter than this are scanned exactly
@@ -242,7 +242,7 @@ def annotate(
                 start=h.start,
                 end=h.end,
                 strand=h.strand,
-                color=TYPE_COLORS.get(h.entry.type, "#9E9E9E"),
+                color=TYPE_COLORS.get(h.entry.type, "#8E949C"),
                 notes={
                     "source": h.entry.source,
                     "auto": "true",

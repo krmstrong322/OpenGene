@@ -50,7 +50,7 @@ OpenGene message.)*
 
 ## Using it
 
-- The app opens its own window. Click **Load the demo** to see an example plasmid,
+- The app opens its own window. Click **Open demo** to see an example plasmid,
   or **Import…** to open your own `.gb`, `.fasta`, `.embl`, or `.dna` file.
 - **Export GenBank / FASTA** saves a file you can open in other software.
 - Everything you do is saved on this computer automatically. There's no account

@@ -28,7 +28,7 @@ const H = 600;
 const CX = W / 2;
 const CY = H / 2;
 const R_BACKBONE = 190;
-const RING_W = 22;
+const RING_W = 16;
 // Overlay tracks: primers hug the backbone just inside it; ORFs sit on two
 // thin rings (one per strand) placed inside whatever feature rings are in use
 // (computed per-render), with a floor so they stay on-canvas.
@@ -124,26 +124,25 @@ export function CircularMap({
       className="map-svg"
       viewBox={`0 0 ${W} ${H}`}
       width="100%"
-      style={{ maxHeight: "72vh", userSelect: "none" }}
+      style={{ maxHeight: "62vh", userSelect: "none" }}
       role="img"
       aria-label={`Circular map of ${record.name}`}
     >
-      {/* plate + backbone */}
-      <circle className="plate" cx={CX} cy={CY} r={R_BACKBONE - 2} />
+      {/* backbone */}
       <circle
         className="backbone"
         cx={CX}
         cy={CY}
         r={R_BACKBONE}
         fill="none"
-        strokeWidth={record.isCircular ? 3 : 0}
+        strokeWidth={record.isCircular ? 2 : 0}
       />
       {!record.isCircular && (
         <path
           className="backbone"
           d={linearBackbone()}
           fill="none"
-          strokeWidth={3}
+          strokeWidth={2}
           strokeDasharray="4 4"
         />
       )}
@@ -241,7 +240,7 @@ export function CircularMap({
         const ring = ringOf.get(f.id) ?? 0;
         const rOuter = R_BACKBONE - 6 - ring * (RING_W + 4);
         const rInner = rOuter - RING_W;
-        const color = f.color || TYPE_COLORS[f.type] || "#9E9E9E";
+        const color = f.color || TYPE_COLORS[f.type] || "#8E949C";
         const isActive = hoveredId === f.id || selection?.featureId === f.id;
         return (
           <path
@@ -249,8 +248,8 @@ export function CircularMap({
             d={directedArcPath(CX, CY, rInner, rOuter, f.start, f.end, length, f.strand)}
             className={isActive ? "feature active" : "feature"}
             fill={color}
-            strokeWidth={isActive ? 2 : 1}
-            opacity={hoveredId && !isActive ? 0.55 : 0.92}
+            strokeWidth={isActive ? 1.5 : 1}
+            opacity={hoveredId && !isActive ? 0.6 : 1}
             style={{ cursor: "pointer" }}
             onClick={() => onSelectFeature(f)}
             onMouseEnter={() => onHover(f.id)}
@@ -267,32 +266,28 @@ export function CircularMap({
       {labels.map((l) => {
         const f = l.feature;
         const active = hoveredId === f.id || selection?.featureId === f.id;
-        const color = f.color || TYPE_COLORS[f.type] || "#9E9E9E";
         const anchor = l.side === "right" ? "start" : "end";
         const elbowX = l.x + (l.side === "right" ? -6 : 6);
         return (
           <g
             key={`lbl-${f.id}`}
             style={{ cursor: "pointer" }}
-            opacity={hoveredId && !active ? 0.5 : 1}
             onClick={() => onSelectFeature(f)}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
           >
             <polyline
+              className={active ? "leader active" : "leader"}
               points={`${l.anchor.x},${l.anchor.y} ${l.elbow.x},${l.elbow.y} ${elbowX},${l.y}`}
               fill="none"
-              stroke={color}
-              strokeWidth={active ? 1.5 : 1}
-              opacity={active ? 1 : 0.7}
+              strokeWidth={0.75}
             />
-            <circle cx={l.anchor.x} cy={l.anchor.y} r={2} fill={color} />
             <text
-              className="label label-halo"
+              className={active ? "label label-halo active" : "label label-halo"}
               x={l.x}
               y={l.y}
-              fontSize={11.5}
-              fontWeight={active ? 700 : 500}
+              fontSize={11}
+              fontWeight={active ? 600 : 400}
               textAnchor={anchor}
               dominantBaseline="middle"
             >
@@ -330,14 +325,11 @@ export function CircularMap({
       })}
 
       {/* center label */}
-      <text className="center-name" x={CX} y={CY - 6} fontSize={16} textAnchor="middle">
-        {truncate(record.name, 28)}
+      <text className="center-name" x={CX} y={CY - 4} fontSize={14} textAnchor="middle">
+        {truncate(record.name, 30)}
       </text>
-      <text className="center-sub" x={CX} y={CY + 15} fontSize={12.5} textAnchor="middle">
+      <text className="center-sub" x={CX} y={CY + 15} fontSize={11.5} textAnchor="middle">
         {length.toLocaleString()} bp
-      </text>
-      <text className="center-faint" x={CX} y={CY + 32} fontSize={10.5} textAnchor="middle">
-        {record.isCircular ? "circular" : "linear"}
       </text>
     </svg>
   );

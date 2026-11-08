@@ -41,12 +41,9 @@ export function NewRecordDialog({ onClose, onCreated, onError }: Props) {
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="new-title">
         <div className="dialog-head">
-          <div style={{ flex: 1 }}>
-            <h2 id="new-title">New sequence</h2>
-            <p>Paste DNA to start a new construct. It’s saved to your library automatically.</p>
-          </div>
-          <button className="icon-btn sm" onClick={onClose} aria-label="Close">
-            <X size={16} />
+          <h2 id="new-title">New sequence</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <X size={15} />
           </button>
         </div>
         <div className="dialog-body">
@@ -55,9 +52,10 @@ export function NewRecordDialog({ onClose, onCreated, onError }: Props) {
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="field">
-            <span>
-              Sequence{" "}
-              {bases > 0 && <span className="badge mono">{bases.toLocaleString()} bp</span>}
+            <span style={{ display: "flex" }}>
+              Sequence
+              <span className="spacer" />
+              {bases > 0 && <span className="num">{bases.toLocaleString()} bp</span>}
             </span>
             <textarea
               ref={seqRef}
@@ -69,21 +67,21 @@ export function NewRecordDialog({ onClose, onCreated, onError }: Props) {
               spellCheck={false}
             />
           </label>
-          <label className="switch">
+          <label className="check">
             <input
               type="checkbox"
               checked={circular}
               onChange={(e) => setCircular(e.target.checked)}
             />
-            Circular plasmid
+            Circular
           </label>
         </div>
         <div className="dialog-foot">
-          <button className="btn btn-ghost" onClick={onClose}>
+          <button className="btn" onClick={onClose}>
             Cancel
           </button>
           <button className="btn btn-primary" disabled={!seq.trim() || busy} onClick={create}>
-            {busy ? "Creating…" : "Create sequence"}
+            {busy ? "Creating…" : "Create"}
           </button>
         </div>
       </div>

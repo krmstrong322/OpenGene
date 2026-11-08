@@ -19,7 +19,7 @@ interface Props {
 const H = 150;
 const PAD = 40;
 const TRACK_Y = 60;
-const TRACK_H = 16;
+const TRACK_H = 14;
 const THIN_H = 9; // overlay (primer / ORF) track height
 
 // Stack overlapping features into lanes.
@@ -93,7 +93,7 @@ export function LinearMap({
       aria-label={`Linear map of ${record.name}`}
     >
       {/* axis */}
-      <line className="backbone" x1={PAD} y1={TRACK_Y} x2={width - PAD} y2={TRACK_Y} strokeWidth={3} strokeLinecap="round" />
+      <line className="backbone" x1={PAD} y1={TRACK_Y} x2={width - PAD} y2={TRACK_Y} strokeWidth={2} />
       {!record.isCircular && (
         <>
           <line className="tick" x1={PAD} y1={TRACK_Y - 6} x2={PAD} y2={TRACK_Y + 6} strokeWidth={2} />
@@ -158,7 +158,7 @@ export function LinearMap({
       {record.features.map((f) => {
         const lane = laneOf.get(f.id) ?? 0;
         const y = TRACK_Y + 20 + lane * (TRACK_H + 6);
-        const color = f.color || TYPE_COLORS[f.type] || "#9E9E9E";
+        const color = f.color || TYPE_COLORS[f.type] || "#8E949C";
         const active = hoveredId === f.id || selection?.featureId === f.id;
         const segments = spanSegments(f.start, f.end, length);
         return (
@@ -168,7 +168,7 @@ export function LinearMap({
             onClick={() => onSelectFeature(f)}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
-            opacity={hoveredId && !active ? 0.55 : 1}
+            opacity={hoveredId && !active ? 0.6 : 1}
           >
             {segments.map(([s, e], si) => (
               <path
@@ -190,9 +190,9 @@ export function LinearMap({
                 <text
                   x={lx}
                   y={y + TRACK_H / 2 + 0.5}
-                  fontSize={10}
+                  fontSize={9.5}
                   fill="#fff"
-                  fontWeight={600}
+                  fontWeight={500}
                   dominantBaseline="middle"
                   style={{ pointerEvents: "none" }}
                 >
@@ -209,7 +209,7 @@ export function LinearMap({
 
       {/* primer overlay band */}
       {primers.length > 0 && (
-        <text className="band-label" x={PAD} y={primerBandY - 3} fontSize={8.5}>
+        <text className="band-label" x={PAD} y={primerBandY - 3} fontSize={9}>
           primers
         </text>
       )}
@@ -240,7 +240,7 @@ export function LinearMap({
 
       {/* ORF overlay band */}
       {orfs.length > 0 && (
-        <text className="band-label" x={PAD} y={orfBandY - 3} fontSize={8.5}>
+        <text className="band-label" x={PAD} y={orfBandY - 3} fontSize={9}>
           ORFs
         </text>
       )}

@@ -111,12 +111,12 @@ export interface Selection {
 }
 
 export const TYPE_COLORS: Record<FeatureType, string> = {
-  promoter: "#4CAF50",
-  CDS: "#2196F3",
-  terminator: "#F44336",
-  origin: "#FF9800",
-  primer: "#9C27B0",
-  tag: "#00BCD4",
-  RBS: "#8BC34A",
-  misc_feature: "#9E9E9E",
+  promoter: "#4C9A6A",
+  CDS: "#4A78B5",
+  terminator: "#C0533F",
+  origin: "#D08C2E",
+  primer: "#7E5BB0",
+  tag: "#2D9396",
+  RBS: "#8AA84B",
+  misc_feature: "#8E949C",
 };

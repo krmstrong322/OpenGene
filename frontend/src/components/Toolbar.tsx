@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Check,
   ChevronDown,
-  ChevronLeft,
   Download,
   Monitor,
   Moon,
@@ -44,35 +43,33 @@ export function Toolbar({
   const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
 
   return (
-    <header className="app-header">
-      <button className="brand" onClick={onShowLibrary} title="All plasmids">
-        <img src={logoUrl} alt="" width={26} height={26} />
+    <header className="titlebar">
+      <button className="brand" onClick={onShowLibrary} title="Library">
+        <img src={logoUrl} alt="" width={18} height={18} />
         <span className="brand-text">OpenGene</span>
       </button>
 
       {record && (
-        <>
-          <span className="header-sep" />
-          <div className="crumb">
-            <button className="icon-btn sm" onClick={onShowLibrary} title="Back to plasmids">
-              <ChevronLeft size={16} />
-            </button>
-            <span className="crumb-name" title={record.name}>
-              {record.name}
-            </span>
-            <span className="crumb-meta inline">
-              <span className="badge mono">{record.length.toLocaleString()} bp</span>
-              <span className="badge">{record.isCircular ? "circular" : "linear"}</span>
-            </span>
-          </div>
-        </>
+        <nav className="crumbs" aria-label="Breadcrumb">
+          <span className="sep">/</span>
+          <button className="crumb-link" onClick={onShowLibrary}>
+            Library
+          </button>
+          <span className="sep">/</span>
+          <span className="crumb-name" title={record.name}>
+            {record.name}
+          </span>
+          <span className="crumb-meta">
+            {record.length.toLocaleString()} bp · {record.isCircular ? "circular" : "linear"}
+          </span>
+        </nav>
       )}
 
       <span className="spacer" />
 
-      <div className="header-actions">
+      <div className="bar-actions">
         {record && (
-          <div className="btn-group" role="group" aria-label="History">
+          <>
             <button
               className="icon-btn"
               onClick={onUndo}
@@ -80,7 +77,7 @@ export function Toolbar({
               title={`Undo (${MOD}Z)`}
               aria-label="Undo"
             >
-              <Undo2 size={16} />
+              <Undo2 size={15} />
             </button>
             <button
               className="icon-btn"
@@ -89,33 +86,37 @@ export function Toolbar({
               title={`Redo (${MOD}${isMac ? "⇧Z" : "Shift+Z"})`}
               aria-label="Redo"
             >
-              <Redo2 size={16} />
+              <Redo2 size={15} />
             </button>
-          </div>
+            <span className="bar-sep" />
+          </>
         )}
 
-        <button className="btn btn-ghost" onClick={onNew} title="New sequence">
-          <Plus size={16} />
-          <span className="btn-text">New</span>
-        </button>
-        <button className="btn btn-ghost" onClick={onImport} title="Import a file">
-          <Upload size={15} />
-          <span className="btn-text">Import</span>
-        </button>
+        {record && (
+          <>
+            <button className="btn btn-ghost" onClick={onNew} title="New sequence">
+              <Plus size={14} />
+              <span className="bar-text">New</span>
+            </button>
+            <button className="btn btn-ghost" onClick={onImport} title="Import a file">
+              <Upload size={14} />
+              <span className="bar-text">Import</span>
+            </button>
+          </>
+        )}
 
         {record && (
           <Menu
             label={
               <>
-                <Download size={15} />
-                <span className="btn-text">Export</span>
-                <ChevronDown size={14} />
+                <Download size={14} />
+                <span className="bar-text">Export</span>
+                <ChevronDown size={12} />
               </>
             }
-            buttonClass="btn btn-primary"
+            buttonClass="btn btn-ghost"
             title="Export"
           >
-            <div className="menu-label">Download as</div>
             <a
               className="menu-item"
               href={api.exportUrl(record.id, "genbank")}
@@ -133,27 +134,19 @@ export function Toolbar({
           </Menu>
         )}
 
-        <Menu
-          label={<ThemeIcon size={16} />}
-          buttonClass="icon-btn"
-          title="Appearance"
-        >
+        {record && <span className="bar-sep" />}
+        <Menu label={<ThemeIcon size={15} />} buttonClass="icon-btn" title="Appearance">
           <div className="menu-label">Appearance</div>
           {(
             [
-              ["system", "System", Monitor],
-              ["light", "Light", Sun],
-              ["dark", "Dark", Moon],
+              ["system", "Match system"],
+              ["light", "Light"],
+              ["dark", "Dark"],
             ] as const
-          ).map(([value, text, Icon]) => (
-            <button
-              key={value}
-              className={theme === value ? "menu-item checked" : "menu-item"}
-              onClick={() => onThemeChange(value)}
-            >
-              <Icon size={15} />
+          ).map(([value, text]) => (
+            <button key={value} className="menu-item" onClick={() => onThemeChange(value)}>
               {text}
-              {theme === value && <Check size={14} style={{ marginLeft: "auto" }} />}
+              {theme === value && <Check size={13} className="check-mark" />}
             </button>
           ))}
         </Menu>

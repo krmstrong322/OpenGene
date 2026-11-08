@@ -38,7 +38,7 @@ build/signing details in [desktop/README.md](desktop/README.md).
 cd backend
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                              # 47 tests
+pytest -q                              # run the test suite
 uvicorn opengene.api:app --port 8000   # API + /docs
 
 # Frontend (new terminal)
@@ -51,6 +51,59 @@ Open the app: the library starts with eight sample plasmids (pUC19, pBR322,
 pEGFP-N1, pGEX-4T-1 and others). They live in
 [`backend/opengene/data/samples/`](backend/opengene/data/samples/), which also
 makes them handy test files to import.
+
+## How to use
+
+The window has three parts: the **maps** on the left (circular map, linear view,
+and the colored sequence), the **inspector** tabs on the right (Edit, Features,
+ORFs, Enzymes, Primers), and a **status bar** along the bottom (engine status,
+length, feature count, GC%, and the current selection). Selecting anything —
+a feature, a base, a range — highlights it in all three views at once.
+
+- **Open a plasmid.** On the Library screen, click any row. The library starts
+  with the bundled samples; **Add samples** restores any you've deleted,
+  **Import…** opens your own `.gb` / `.fasta` / `.embl` / `.dna` file, and
+  **New sequence** starts one from pasted DNA.
+- **Select a region.** Click a feature on either map, or click a base in the
+  sequence and shift-click another to extend. The status bar shows the span and
+  its length.
+- **Edit** (Edit tab) — insert, delete, replace, or mutate the selection, or
+  reverse-complement the whole record. Feature coordinates move with your edit,
+  and **⌘/Ctrl-Z** undoes it. The *Reading frame* control decides what happens
+  to a CDS when an edit isn't a multiple of 3 bp.
+- **Annotate** (Features tab) — **Auto-annotate** labels known parts from the
+  feature library; you can also add or edit features by hand.
+- **Cut sites** (Enzymes tab) — type enzymes, **Map & digest** to draw the sites
+  and list fragment sizes, or **Unique cutters** to find single cutters.
+- **Primers** (Primers tab) — select a region and **Design primers** for a pair
+  flanking it, or paste an oligo into **Analyze** for Tm / GC / hairpin / dimer
+  checks. [docs/sample-primers.md](docs/sample-primers.md) has a ready-made pair
+  for each sample.
+- **Export** (title bar) — download the record as GenBank or FASTA.
+
+### A five-minute walkthrough (pUC19)
+
+1. **Open it.** Click **pUC19** in the library. The circular map draws the 2,686
+   bp vector; **Auto-annotate** has already labelled the ColE1/pUC origin, AmpR
+   (bla), and the lac promoter and operator. The status bar reads its length and
+   GC%.
+2. **Explore a feature.** Click the blue **AmpR (bla)** arrow. It highlights on
+   the circular map, in the linear view, and in the sequence, and the status bar
+   shows its span (1625–2486, 861 bp).
+3. **Map a restriction site.** Open **Enzymes**, keep the default enzyme list,
+   and click **Map & digest**. EcoRI, HindIII, BamHI and others appear as marks
+   around the backbone with their fragment sizes listed. **Unique cutters**
+   filters to enzymes that cut exactly once — the ones useful for linearizing.
+4. **Design primers.** With **AmpR (bla)** still selected, open **Primers** and
+   click **Design primers for 1625–2486**. A forward/reverse pair appears with
+   Tm and GC, and (if the Primers overlay is on) as arrows on the maps. Paste
+   either one into **Analyze an oligo** to see its full report. These match the
+   pUC19 row in [docs/sample-primers.md](docs/sample-primers.md).
+5. **Make an edit, then undo it.** In **Edit**, type a few bases into *Insert*
+   and insert them at a position; watch the map and sequence update and the
+   length change. Press **⌘/Ctrl-Z** to undo.
+6. **Export.** Use **Export → GenBank** in the title bar to download the
+   annotated plasmid for use in other software.
 
 ## What's implemented (Phase 1)
 

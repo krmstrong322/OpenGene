@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlignLeft, CircleAlert, CircleDot, Rows3, X } from "lucide-react";
 import { CircularMap } from "./components/CircularMap";
 import { EditPanel } from "./components/EditPanel";
 import { LinearMap } from "./components/LinearMap";
+import { NewRecordDialog } from "./components/NewRecordDialog";
 import { RecordLibrary } from "./components/RecordLibrary";
 import { SequenceViewer } from "./components/SequenceViewer";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
-import { normalizeSpan } from "./lib/selection";
+import { normalizeSpan, selectionLength } from "./lib/selection";
+import { useTheme } from "./lib/theme";
 import type { CutSite, Feature, ORF, PlasmidRecord, Selection } from "./lib/types";
+import { TYPE_COLORS } from "./lib/types";
 
 const DEMO_SEQ =
   "TAATACGACTCACTATAGGGAATTGTGAGCGGATAACAATTCCCCTCTAGAAATAATTTTGTTTAACTTTAAGAAGGAGATATACAT" +
@@ -35,6 +39,9 @@ export default function App() {
   const [minOrfAa, setMinOrfAa] = useState(50);
   const [showOrfs, setShowOrfs] = useState(false);
   const [showPrimers, setShowPrimers] = useState(true);
+  const [showNew, setShowNew] = useState(false);
+  const [theme, setTheme] = useTheme();
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api
@@ -209,24 +216,56 @@ export default function App() {
     }
   };
 
+  const openFilePicker = () => fileRef.current?.click();
+
+  const handleImport = async (file: File) => {
+    try {
+      const r = await api.importFile(file);
+      setSelection(null);
+      setRecord(r);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const showLibrary = () => {
+    setRecord(null);
+    setSelection(null);
+  };
+
+  // Feature types present in the record, for the map legend.
+  const legend = useMemo(() => {
+    if (!record) return [];
+    const seen = new Map<string, string>();
+    for (const f of record.features) {
+      if (!seen.has(f.type)) seen.set(f.type, TYPE_COLORS[f.type] || "#9E9E9E");
+    }
+    return Array.from(seen, ([type, color]) => ({ type, color }));
+  }, [record]);
+
   return (
     <div className="app">
       <Toolbar
         record={record}
-        onRecordChange={setRecord}
-        onError={setError}
-        onShowLibrary={() => {
-          setRecord(null);
-          setSelection(null);
-        }}
+        onShowLibrary={showLibrary}
         onUndo={undo}
         onRedo={redo}
+        onNew={() => setShowNew(true)}
+        onImport={openFilePicker}
+        theme={theme}
+        onThemeChange={setTheme}
       />
-      {error && (
-        <div className="error-bar" onClick={() => setError(null)}>
-          {error} <span className="muted">(click to dismiss)</span>
-        </div>
-      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".gb,.gbk,.genbank,.fasta,.fa,.fna,.embl,.dna"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void handleImport(f);
+          e.target.value = "";
+        }}
+      />
 
       {!record ? (
         <RecordLibrary
@@ -235,81 +274,120 @@ export default function App() {
             setRecord(r);
           }}
           onDemo={loadDemo}
+          onNew={() => setShowNew(true)}
+          onImport={openFilePicker}
           onError={setError}
-          status={status}
         />
       ) : (
-        <div className="workspace">
+        <main className="workspace">
           <div className="maps">
-            <div className="map-controls">
-              <label className="inline">
-                <input
-                  type="checkbox"
-                  checked={showPrimers}
-                  onChange={(e) => setShowPrimers(e.target.checked)}
+            <section className="card">
+              <div className="card-head">
+                <h3 className="card-title">
+                  <CircleDot size={15} /> Plasmid map
+                </h3>
+                <div className="map-controls">
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={showPrimers}
+                      onChange={(e) => setShowPrimers(e.target.checked)}
+                    />
+                    Primers <span className="count">{record.primers.length}</span>
+                  </label>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={showOrfs}
+                      onChange={(e) => setShowOrfs(e.target.checked)}
+                    />
+                    ORFs {showOrfs && <span className="count">{orfs.length}</span>}
+                  </label>
+                  {showOrfs && (
+                    <label className="inline muted small">
+                      min aa
+                      <input
+                        type="number"
+                        className="input narrow"
+                        value={minOrfAa}
+                        min={1}
+                        onChange={(e) => setMinOrfAa(Math.max(1, Number(e.target.value)))}
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+              <div className="card-body">
+                <CircularMap
+                  record={record}
+                  cutSites={cutSites}
+                  selection={selection}
+                  onSelectFeature={selectFeature}
+                  onHover={setHoveredId}
+                  hoveredId={hoveredId}
+                  primers={showPrimers ? displayPrimers : []}
+                  orfs={showOrfs ? orfs : []}
+                  onSelectRange={selectRange}
                 />
-                Primers ({record.primers.length})
-              </label>
-              <label className="inline">
-                <input
-                  type="checkbox"
-                  checked={showOrfs}
-                  onChange={(e) => setShowOrfs(e.target.checked)}
-                />
-                ORFs{showOrfs ? ` (${orfs.length})` : ""}
-              </label>
-              {showOrfs && (
-                <label className="inline">
-                  min aa
-                  <input
-                    type="number"
-                    className="mini"
-                    value={minOrfAa}
-                    min={1}
-                    onChange={(e) => setMinOrfAa(Math.max(1, Number(e.target.value)))}
-                  />
-                </label>
+              </div>
+              {(legend.length > 0 || cutSites.length > 0) && (
+                <div className="legend">
+                  {legend.map((l) => (
+                    <span key={l.type}>
+                      <i className="swatch" style={{ background: l.color }} />
+                      {l.type}
+                    </span>
+                  ))}
+                  {cutSites.length > 0 && (
+                    <span>
+                      <i className="cut-mark" /> cut site
+                    </span>
+                  )}
+                </div>
               )}
-            </div>
-            <div className="card">
-              <CircularMap
-                record={record}
-                cutSites={cutSites}
-                selection={selection}
-                onSelectFeature={selectFeature}
-                onHover={setHoveredId}
-                hoveredId={hoveredId}
-                primers={showPrimers ? displayPrimers : []}
-                orfs={showOrfs ? orfs : []}
-                onSelectRange={selectRange}
-              />
-            </div>
-            <div className="card">
-              <h3 className="card-title">Linear map</h3>
-              <LinearMap
-                record={record}
-                cutSites={cutSites}
-                selection={selection}
-                onSelectFeature={selectFeature}
-                onHover={setHoveredId}
-                hoveredId={hoveredId}
-                primers={showPrimers ? displayPrimers : []}
-                orfs={showOrfs ? orfs : []}
-                onSelectRange={selectRange}
-              />
-            </div>
-            <div className="card">
-              <h3 className="card-title">Sequence</h3>
-              <SequenceViewer
-                record={record}
-                selection={selection}
-                onSelect={setSelection}
-                hoveredId={hoveredId}
-              />
-            </div>
+            </section>
+
+            <section className="card">
+              <div className="card-head">
+                <h3 className="card-title">
+                  <Rows3 size={15} /> Linear map
+                </h3>
+              </div>
+              <div className="card-body">
+                <LinearMap
+                  record={record}
+                  cutSites={cutSites}
+                  selection={selection}
+                  onSelectFeature={selectFeature}
+                  onHover={setHoveredId}
+                  hoveredId={hoveredId}
+                  primers={showPrimers ? displayPrimers : []}
+                  orfs={showOrfs ? orfs : []}
+                  onSelectRange={selectRange}
+                />
+              </div>
+            </section>
+
+            <section className="card">
+              <div className="card-head">
+                <h3 className="card-title">
+                  <AlignLeft size={15} /> Sequence
+                </h3>
+                <span className="spacer" />
+                <span className="muted small">Click a base, shift-click to extend</span>
+              </div>
+              <div className="card-body flush">
+                <SequenceViewer
+                  record={record}
+                  selection={selection}
+                  onSelect={setSelection}
+                  hoveredId={hoveredId}
+                />
+              </div>
+            </section>
           </div>
 
-          <div className="side">
+          <aside className="side">
             <EditPanel
               record={record}
               selection={selection}
@@ -321,9 +399,87 @@ export default function App() {
               enzymeInput={enzymeInput}
               setEnzymeInput={setEnzymeInput}
             />
+          </aside>
+        </main>
+      )}
+
+      <StatusBar record={record} selection={selection} status={status} />
+
+      {showNew && (
+        <NewRecordDialog
+          onClose={() => setShowNew(false)}
+          onCreated={(r) => {
+            setShowNew(false);
+            setSelection(null);
+            setRecord(r);
+          }}
+          onError={setError}
+        />
+      )}
+
+      {error && (
+        <div className="toast" role="alert">
+          <CircleAlert size={18} className="toast-icon" />
+          <div className="toast-body">
+            <div className="toast-title">Something went wrong</div>
+            <div className="muted">{error}</div>
           </div>
+          <button className="icon-btn sm" onClick={() => setError(null)} aria-label="Dismiss">
+            <X size={15} />
+          </button>
         </div>
       )}
     </div>
   );
+}
+
+function StatusBar({
+  record,
+  selection,
+  status,
+}: {
+  record: PlasmidRecord | null;
+  selection: Selection | null;
+  status: string;
+}) {
+  const gc = useMemo(() => {
+    if (!record?.sequence.length) return null;
+    let n = 0;
+    for (const c of record.sequence) if (c === "G" || c === "C" || c === "g" || c === "c") n++;
+    return (100 * n) / record.sequence.length;
+  }, [record?.sequence]);
+  const online = status.startsWith("backend ") && status !== "backend offline";
+
+  return (
+    <footer className="statusbar">
+      <span className="item">
+        <span className={online ? "dot ok" : status === "connecting…" ? "dot" : "dot bad"} />
+        {online ? `Engine ${status.replace("backend ", "v")}` : status === "connecting…" ? "Connecting…" : "Engine offline"}
+      </span>
+      {record && (
+        <>
+          <span className="item hide-sm">{record.length.toLocaleString()} bp</span>
+          <span className="item hide-sm">
+            {record.features.length} feature{record.features.length === 1 ? "" : "s"}
+          </span>
+          {gc !== null && <span className="item hide-sm">GC {gc.toFixed(1)}%</span>}
+          <span className="spacer" />
+          {selection && (
+            <span className="item sel">
+              <i className="swatch" />
+              {describeSelection(selection, record.length)}
+            </span>
+          )}
+        </>
+      )}
+    </footer>
+  );
+}
+
+function describeSelection(sel: Selection, length: number): string {
+  const bp = selectionLength(sel, length);
+  if (bp <= 1) return `Position ${Math.min(sel.start, sel.end)}`;
+  const lo = sel.wrap ? sel.start : Math.min(sel.start, sel.end);
+  const hi = sel.wrap ? sel.end : Math.max(sel.start, sel.end);
+  return `${lo}–${hi}${sel.wrap ? " (wraps origin)" : ""} · ${bp.toLocaleString()} bp`;
 }

@@ -25,27 +25,39 @@ npm run dev          # http://localhost:5173
 npm run build        # type-check + production build to dist/
 ```
 
-Click **Load demo** on the empty state for a T7 · 6×His · TEV · EGFP · T7-terminator
+Click **Load the demo** on the start screen for a T7 · 6×His · TEV · EGFP · T7-terminator
 construct that exercises the maps, annotation, and sequence view.
 
 ## Layout
 
 ```
-Toolbar            new / import (.gb/.fasta/.embl/.dna) / export (GenBank, FASTA)
+Header        library · record name · undo/redo · new / import / export ▾ · theme
 ┌───────────────────────────┬──────────────────────┐
-│ Circular map (SVG)        │  Edit panel (tabs):   │
-│ Linear map (SVG)          │   • Edit   insert / delete / mutate / revcomp
-│ Sequence viewer           │   • Features  auto-annotate, add, list
-│                           │   • ORFs   6-frame detection
+│ Plasmid map (SVG)         │  Inspector (tabs):    │
+│   overlay toggles, legend │   • Edit   insert / delete / mutate / revcomp
+│ Linear map (SVG)          │   • Features  auto-annotate, list, add
+│ Sequence viewer           │   • ORFs   6-frame detection
 │                           │   • Enzymes  cut-site map & digest
 │                           │   • Primers  design pair / analyze oligo
 └───────────────────────────┴──────────────────────┘
+Status bar    engine status · length · features · GC% · current selection
 ```
 
 All three views share one `Selection`, so hovering or selecting a feature in any
 view highlights it in the others. The maps render directional arrows, stacked
-lanes/rings for overlapping features, restriction cut sites, and origin-wrapping
-features (e.g. a terminator shown as `871–0`).
+lanes/rings for overlapping features, labelled features with leader lines,
+restriction cut sites, and origin-wrapping features (e.g. a terminator shown as
+`871–0`).
+
+## Design system
+
+`src/styles.css` defines the look as CSS custom properties (colors, radii,
+shadows) with a light and a dark set. The theme follows the OS by default; the
+header's appearance menu overrides it (stored in `localStorage`, see
+`lib/theme.ts`). SVG maps take their neutral colors from the same tokens via
+classes, so they switch themes too. Inter and JetBrains Mono are bundled with
+`@fontsource-variable/*` (no network needed, so they work in the desktop app),
+and icons come from `lucide-react`.
 
 ## Components
 
@@ -58,4 +70,8 @@ features (e.g. a terminator shown as `871–0`).
 | `components/LinearMap.tsx` | Linear feature track with lanes |
 | `components/SequenceViewer.tsx` | Colored sequence with click/shift-click selection |
 | `components/EditPanel.tsx` | Tabbed editing + analysis panel |
-| `components/Toolbar.tsx` | File I/O and record creation |
+| `components/Toolbar.tsx` | App header: navigation, undo/redo, import/export, theme |
+| `components/RecordLibrary.tsx` | Start screen: quick actions and saved plasmids |
+| `components/NewRecordDialog.tsx` | Modal for creating a record from pasted DNA |
+| `components/PlasmidGlyph.tsx` | Small decorative plasmid icon for library cards |
+| `lib/theme.ts` | Light / dark / system theme preference |

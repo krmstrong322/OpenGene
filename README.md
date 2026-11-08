@@ -47,7 +47,7 @@ npm install
 npm run dev                            # http://localhost:5173
 ```
 
-Open the app and click **Load demo**.
+Open the app and click **Load the demo**.
 
 ## What's implemented (Phase 1)
 

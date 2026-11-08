@@ -85,6 +85,7 @@ export function LinearMap({
 
   return (
     <svg
+      className="map-svg"
       viewBox={`0 0 ${width} ${Math.max(H, totalH)}`}
       width="100%"
       style={{ userSelect: "none" }}
@@ -92,16 +93,16 @@ export function LinearMap({
       aria-label={`Linear map of ${record.name}`}
     >
       {/* axis */}
-      <line x1={PAD} y1={TRACK_Y} x2={width - PAD} y2={TRACK_Y} stroke="#607d8b" strokeWidth={2} />
+      <line className="backbone" x1={PAD} y1={TRACK_Y} x2={width - PAD} y2={TRACK_Y} strokeWidth={3} strokeLinecap="round" />
       {!record.isCircular && (
         <>
-          <line x1={PAD} y1={TRACK_Y - 6} x2={PAD} y2={TRACK_Y + 6} stroke="#607d8b" strokeWidth={2} />
+          <line className="tick" x1={PAD} y1={TRACK_Y - 6} x2={PAD} y2={TRACK_Y + 6} strokeWidth={2} />
           <line
             x1={width - PAD}
             y1={TRACK_Y - 6}
             x2={width - PAD}
             y2={TRACK_Y + 6}
-            stroke="#607d8b"
+            className="tick"
             strokeWidth={2}
           />
         </>
@@ -109,8 +110,8 @@ export function LinearMap({
 
       {ticks.map((b) => (
         <g key={`t-${b}`}>
-          <line x1={x(b)} y1={TRACK_Y} x2={x(b)} y2={TRACK_Y - 5} stroke="#90a4ae" />
-          <text x={x(b)} y={TRACK_Y - 9} fontSize={9} fill="#607d8b" textAnchor="middle">
+          <line className="tick" x1={x(b)} y1={TRACK_Y - 2} x2={x(b)} y2={TRACK_Y - 7} />
+          <text className="tick-label" x={x(b)} y={TRACK_Y - 11} fontSize={9} textAnchor="middle">
             {b}
           </text>
         </g>
@@ -124,8 +125,9 @@ export function LinearMap({
           y={TRACK_Y - 3}
           width={Math.max(2, x(hi) - x(lo))}
           height={6}
-          fill="#ffca28"
-          opacity={0.8}
+          className="sel"
+          rx={2}
+          opacity={0.9}
         />
       ))}
 
@@ -137,14 +139,14 @@ export function LinearMap({
             y1={TRACK_Y - 14}
             x2={x(c.position)}
             y2={TRACK_Y + 4}
-            stroke="#d32f2f"
+            className="cut"
             strokeWidth={1.2}
           />
           <text
             x={x(c.position)}
             y={TRACK_Y - 16}
             fontSize={8}
-            fill="#d32f2f"
+            className="cut-label"
             textAnchor="middle"
           >
             {c.enzyme}
@@ -171,23 +173,33 @@ export function LinearMap({
             {segments.map(([s, e], si) => (
               <path
                 key={si}
+                className={active ? "feature active" : "feature"}
                 d={arrowRect(x(s), x(e), y, TRACK_H, f.strand)}
                 fill={color}
-                stroke={active ? "#212121" : "white"}
-                strokeWidth={active ? 1.5 : 0.5}
+                strokeWidth={active ? 1.5 : 0.75}
               />
             ))}
-            <text
-              x={x(segments[0][0]) + 4}
-              y={y + TRACK_H / 2}
-              fontSize={10}
-              fill="#fff"
-              fontWeight={600}
-              dominantBaseline="middle"
-              style={{ pointerEvents: "none" }}
-            >
-              {f.name}
-            </text>
+            {(() => {
+              // Label inside the widest segment, truncated to what fits.
+              const [s0, e0] = segments.reduce((a, b) => (b[1] - b[0] > a[1] - a[0] ? b : a));
+              const room = x(e0) - x(s0) - 14;
+              const text = fitLabel(f.name, room);
+              if (!text) return null;
+              const lx = f.strand >= 0 ? x(s0) + 5 : x(s0) + 11;
+              return (
+                <text
+                  x={lx}
+                  y={y + TRACK_H / 2 + 0.5}
+                  fontSize={10}
+                  fill="#fff"
+                  fontWeight={600}
+                  dominantBaseline="middle"
+                  style={{ pointerEvents: "none" }}
+                >
+                  {text}
+                </text>
+              );
+            })()}
             <title>
               {f.name} ({f.start}–{f.end}, {f.strand === 1 ? "+" : "−"})
             </title>
@@ -197,7 +209,7 @@ export function LinearMap({
 
       {/* primer overlay band */}
       {primers.length > 0 && (
-        <text x={PAD} y={primerBandY - 2} fontSize={9} fill="#9C27B0">
+        <text className="band-label" x={PAD} y={primerBandY - 3} fontSize={8.5}>
           primers
         </text>
       )}
@@ -214,9 +226,9 @@ export function LinearMap({
               <path
                 key={si}
                 d={arrowRect(x(s), x(e), y, THIN_H, p.strand)}
+                className="feature"
                 fill={TYPE_COLORS.primer}
-                stroke="white"
-                strokeWidth={0.4}
+                strokeWidth={0.5}
               />
             ))}
             <title>
@@ -228,7 +240,7 @@ export function LinearMap({
 
       {/* ORF overlay band */}
       {orfs.length > 0 && (
-        <text x={PAD} y={orfBandY - 2} fontSize={9} fill="#607d8b">
+        <text className="band-label" x={PAD} y={orfBandY - 3} fontSize={8.5}>
           ORFs
         </text>
       )}
@@ -245,7 +257,7 @@ export function LinearMap({
               <path
                 key={si}
                 d={arrowRect(x(s), x(e), y, THIN_H, o.strand)}
-                fill="#78909c"
+                className="orf"
                 opacity={0.6}
               />
             ))}
@@ -280,4 +292,14 @@ function niceStep(length: number): number {
     if (m * pow >= target) return m * pow;
   }
   return 10 * pow;
+}
+
+// The longest prefix of `name` that fits in `room` px at the 10px label size
+// (≈6px per character), with an ellipsis when cut; null if not even a couple
+// of characters fit.
+function fitLabel(name: string, room: number): string | null {
+  const max = Math.floor(room / 6);
+  if (name.length <= max) return name;
+  if (max < 3) return null;
+  return name.slice(0, max - 1) + "…";
 }

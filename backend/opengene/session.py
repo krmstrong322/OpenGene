@@ -45,6 +45,9 @@ class SessionStore:
         # commit stores a snapshot taken before another's mutation and undo
         # then rolls back more than its own change.
         self._rec_locks: dict[str, RLock] = {}
+        # Small key/value settings (e.g. whether sample plasmids were already
+        # added), mirrored to SQLite alongside the records.
+        self._meta: dict[str, str] = {}
         if db_path:
             self._init_db()
             self._load_all()
@@ -65,10 +68,15 @@ class SessionStore:
             )
             """
         )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
         self._conn.commit()
 
     def _load_all(self) -> None:
         assert self._conn
+        for key, value in self._conn.execute("SELECT key, value FROM meta"):
+            self._meta[key] = value
         for data, row_saved_at in self._conn.execute(
             "SELECT data, updated_at FROM records"
         ):
@@ -142,6 +150,21 @@ class SessionStore:
             self._rec_locks.clear()
             if self._conn:
                 self._conn.execute("DELETE FROM records")
+                self._conn.commit()
+
+    # -- settings -----------------------------------------------------------
+
+    def get_meta(self, key: str) -> str | None:
+        with self._lock:
+            return self._meta.get(key)
+
+    def set_meta(self, key: str, value: str) -> None:
+        with self._lock:
+            self._meta[key] = value
+            if self._conn:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value)
+                )
                 self._conn.commit()
 
     # -- undo / redo ------------------------------------------------------

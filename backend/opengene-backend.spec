@@ -11,7 +11,7 @@ datas = []
 binaries = []
 hiddenimports = []
 
-# Our package data (feature_library.json).
+# Our package data (feature_library.json, data/samples/).
 datas += collect_data_files("opengene")
 
 # uvicorn resolves loop/protocol implementations dynamically at runtime.

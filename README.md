@@ -47,7 +47,10 @@ npm install
 npm run dev                            # http://localhost:5173
 ```
 
-Open the app and click **Open demo**.
+Open the app: the library starts with eight sample plasmids (pUC19, pBR322,
+pEGFP-N1, pGEX-4T-1 and others). They live in
+[`backend/opengene/data/samples/`](backend/opengene/data/samples/), which also
+makes them handy test files to import.
 
 ## What's implemented (Phase 1)
 

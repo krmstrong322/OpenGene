@@ -50,8 +50,10 @@ OpenGene message.)*
 
 ## Using it
 
-- The app opens its own window. Click **Open demo** to see an example plasmid,
-  or **Import…** to open your own `.gb`, `.fasta`, `.embl`, or `.dna` file.
+- The app opens its own window. Your library starts with a few sample plasmids
+  (pUC19, pBR322, pEGFP-N1 and others) to explore. Click any of them to open it,
+  or use **Import…** to open your own `.gb`, `.fasta`, `.embl`, or `.dna` file.
+  If you delete the samples, **Add samples** brings them back.
 - **Export GenBank / FASTA** saves a file you can open in other software.
 - Everything you do is saved on this computer automatically. There's no account
   and nothing is uploaded — it all runs locally.

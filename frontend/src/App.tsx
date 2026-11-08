@@ -13,19 +13,6 @@ import { useTheme } from "./lib/theme";
 import type { CutSite, Feature, ORF, PlasmidRecord, Selection } from "./lib/types";
 import { TYPE_COLORS } from "./lib/types";
 
-const DEMO_SEQ =
-  "TAATACGACTCACTATAGGGAATTGTGAGCGGATAACAATTCCCCTCTAGAAATAATTTTGTTTAACTTTAAGAAGGAGATATACAT" +
-  "ATGGGCCACCACCACCACCACCACGGCAGCGGCGAAAACCTGTATTTTCAGGGCAGCATGGTGAGCAAGGGCGAGGAGCTGTTCACC" +
-  "GGGGTGGTGCCCATCCTGGTCGAGCTGGACGGCGACGTAAACGGCCACAAGTTCAGCGTGTCCGGCGAGGGCGAGGGCGATGCCACC" +
-  "TACGGCAAGCTGACCCTGAAGTTCATCTGCACCACCGGCAAGCTGCCCGTGCCCTGGCCCACCCTCGTGACCACCCTGACCTACGGC" +
-  "GTGCAGTGCTTCAGCCGCTACCCCGACCACATGAAGCAGCACGACTTCTTCAAGTCCGCCATGCCCGAAGGCTACGTCCAGGAGCGC" +
-  "ACCATCTTCTTCAAGGACGACGGCAACTACAAGACCCGCGCCGAGGTGAAGTTCGAGGGCGACACCCTGGTGAACCGCATCGAGCTG" +
-  "AAGGGCATCGACTTCAAGGAGGACGGCAACATCCTGGGGCACAAGCTGGAGTACAACTACAACAGCCACAACGTCTATATCATGGCC" +
-  "GACAAGCAGAAGAACGGCATCAAGGTGAACTTCAAGATCCGCCACAACATCGAGGACGGCAGCGTGCAGCTCGCCGACCACTACCAG" +
-  "CAGAACACCCCCATCGGCGACGGCCCCGTGCTGCTGCCCGACAACCACTACCTGAGCACCCAGTCCGCCCTGAGCAAAGACCCCAAC" +
-  "GAGAAGCGCGATCACATGGTCCTGCTGGAGTTCGTGACCGCCGCCGGGATCACTCTCGGCATGGACGAGCTGTACAAGTAA" +
-  "CTGCAGGCTAGCATAACCCCTTGGGGCCTCTAAACGGGTCTTGAGGGGTTTTTTG";
-
 export default function App() {
   const [record, setRecord] = useState<PlasmidRecord | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -206,16 +193,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record?.id, record?.sequence, enzymeInput]);
 
-  const loadDemo = async () => {
-    try {
-      const r = await api.createRecord("pET-demo (T7/His/GFP)", DEMO_SEQ, true);
-      const res = await api.annotate(r.id);
-      setRecord(res.record);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
   const openFilePicker = () => fileRef.current?.click();
 
   const handleImport = async (file: File) => {
@@ -273,7 +250,6 @@ export default function App() {
             setSelection(null);
             setRecord(r);
           }}
-          onDemo={loadDemo}
           onNew={() => setShowNew(true)}
           onImport={openFilePicker}
           onError={setError}

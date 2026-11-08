@@ -1,7 +1,7 @@
 """Auto-annotation against real reference plasmids (independent ground truth).
 
 Unlike test_matcher.py's synthetic cases, these parse unmodified NCBI records
-(tests/fixtures) and assert the origins the matcher finds, their coordinates,
+(the bundled samples in opengene/data/samples) and assert the origins the matcher finds, their coordinates,
 and their identity/coverage at the DEFAULT thresholds. A truncated, mislabeled
 or mis-sourced origin would show up here as a wrong interval, a missing hit, or
 reduced identity — in particular, the ColE1/pUC origin was derived from pUC19
@@ -15,7 +15,7 @@ import pytest
 from opengene.core import annotate as A
 from opengene.io import files as IO
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "opengene" / "data" / "samples"
 
 
 def _origins(filename):

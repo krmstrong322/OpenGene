@@ -29,7 +29,7 @@ where = ["."]
 include = ["opengene*"]
 
 [tool.setuptools.package-data]
-opengene = ["data/*.json"]
+opengene = ["data/*.json", "data/samples/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

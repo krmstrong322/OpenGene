@@ -85,6 +85,7 @@ POST   /records/{id}/features        add a manual feature
 PATCH  /records/{id}/features/{fid}  edit name/type/strand/start/end/color
 DELETE /records/{id}/features/{fid}
 GET    /feature_library
+POST   /samples/restore              add back any missing sample plasmid
 ```
 
 Coordinates are **0-indexed, half-open `[start, end)`**. A circular feature may
@@ -96,6 +97,15 @@ record's full state (sequence, features, primers, history) back and forth. A
 rejected edit (e.g. a blocked frameshift) leaves no dead undo point, and a new
 edit clears the redo stack. Undo history is in-memory per server run — it is
 not mirrored to SQLite, so it does not survive a restart.
+
+## Sample plasmids
+
+`opengene/data/samples/` holds the reference plasmids a new library starts
+with (see its README). On startup the server adds them once per data directory,
+remembered in a `meta` table, so deleted samples stay deleted;
+`POST /samples/restore` adds back any that are missing. Each sample is
+auto-annotated from the feature library, with parts the library lacks carried
+over from the file as listed in `samples.json`.
 
 ## Scope notes
 

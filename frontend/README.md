@@ -25,7 +25,9 @@ npm run dev          # http://localhost:5173
 npm run build        # type-check + production build to dist/
 ```
 
-Click **Open demo** on the start screen for a T7 · 6×His · TEV · EGFP · T7-terminator
+The library starts with the bundled sample plasmids (served by the backend; see
+`backend/opengene/data/samples/`). **Add samples** on the start screen restores
+any you've deleted. *pET-demo* is a small T7 · 6×His · TEV · EGFP · T7-terminator
 construct that exercises the maps, annotation, and sequence view.
 
 ## Layout

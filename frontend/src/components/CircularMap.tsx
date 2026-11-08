@@ -130,8 +130,26 @@ export function CircularMap({
     () => (labelAll ? record.features : record.features.filter((f) => f.id === activeId)),
     [labelAll, record.features, activeId],
   );
-  const labels = useMemo(() => layoutLabels(labelled, length), [labelled, length]);
-  const cutLabels = useMemo(() => placeCutLabels(cutSites, length), [cutSites, length]);
+  // Feature and cut-site labels share one layout, so neither can overlap the other.
+  const labels = useMemo(
+    () =>
+      layoutLabels([
+        ...labelled.map((f) => ({
+          key: f.id,
+          feature: f,
+          text: truncate(f.name, LABEL_MAX),
+          angle: baseToAngle(midBase(f, length), length),
+          anchorR: R_MARK,
+        })),
+        ...cutSites.map((c, i) => ({
+          key: `cut-${i}`,
+          text: c.enzyme,
+          angle: baseToAngle(c.position, length),
+          anchorR: R_MARK + 11,
+        })),
+      ]),
+    [labelled, cutSites, length],
+  );
 
   return (
     <svg
@@ -149,17 +167,11 @@ export function CircularMap({
         cy={CY}
         r={R_BACKBONE}
         fill="none"
-        strokeWidth={record.isCircular ? 1.5 : 0}
+        strokeWidth={1.5}
+        // A linear record still uses the ring as its coordinate axis; dashes
+        // mark that its ends don't join.
+        strokeDasharray={record.isCircular ? undefined : "4 4"}
       />
-      {!record.isCircular && (
-        <path
-          className="backbone"
-          d={linearBackbone()}
-          fill="none"
-          strokeWidth={1.5}
-          strokeDasharray="4 4"
-        />
-      )}
 
       {/* position ticks */}
       {tickBases.map((b) => {
@@ -276,84 +288,72 @@ export function CircularMap({
         );
       })}
 
-      {/* feature labels with leader lines (outside the backbone) */}
+      {/* restriction cut sites */}
+      {cutSites.map((c, i) => {
+        const t = tick(CX, CY, R_MARK, R_MARK + 11, c.position, length);
+        return (
+          <line
+            key={`cut-${c.enzyme}-${i}`}
+            className="cut"
+            x1={t.from.x}
+            y1={t.from.y}
+            x2={t.to.x}
+            y2={t.to.y}
+            strokeWidth={1.5}
+          />
+        );
+      })}
+
+      {/* feature and cut-site labels, with leader lines (outside the backbone) */}
       {labels.map((l) => {
         const f = l.feature;
-        const active = hoveredId === f.id || selection?.featureId === f.id;
-        const anchor = l.side === "right" ? "start" : "end";
+        const active = !!f && (hoveredId === f.id || selection?.featureId === f.id);
         const elbowX = l.x + (l.side === "right" ? -6 : 6);
+        const leader = (
+          <polyline
+            className={f ? (active ? "leader active" : "leader") : "cut"}
+            points={`${l.anchor.x},${l.anchor.y} ${l.elbow.x},${l.elbow.y} ${elbowX},${l.y}`}
+            fill="none"
+            strokeWidth={0.75}
+            opacity={f ? 1 : 0.55}
+          />
+        );
+        const text = (
+          <text
+            className={
+              f ? (active ? "label label-halo active" : "label label-halo") : "cut-label label-halo"
+            }
+            x={l.x}
+            y={l.y}
+            fontSize={f ? 11 : 10}
+            fontWeight={active ? 600 : 400}
+            textAnchor={l.side === "right" ? "start" : "end"}
+            dominantBaseline="middle"
+          >
+            {l.text}
+          </text>
+        );
+        if (!f) {
+          return (
+            <g key={l.key}>
+              {leader}
+              {text}
+            </g>
+          );
+        }
         return (
           <g
-            key={`lbl-${f.id}`}
+            key={l.key}
             style={{ cursor: "pointer" }}
             onClick={() => onSelectFeature(f)}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
           >
-            <polyline
-              className={active ? "leader active" : "leader"}
-              points={`${l.anchor.x},${l.anchor.y} ${l.elbow.x},${l.elbow.y} ${elbowX},${l.y}`}
-              fill="none"
-              strokeWidth={0.75}
-            />
-            <text
-              className={active ? "label label-halo active" : "label label-halo"}
-              x={l.x}
-              y={l.y}
-              fontSize={11}
-              fontWeight={active ? 600 : 400}
-              textAnchor={anchor}
-              dominantBaseline="middle"
-            >
-              {l.text}
-            </text>
+            {leader}
+            {text}
           </g>
         );
       })}
-
-      {/* restriction cut sites: ticks and stems first, then labels (staggered
-          outward so none overlap), so no line can run through a label */}
-      {cutSites.map((c, i) => {
-        const t = tick(CX, CY, R_MARK, R_MARK + 11, c.position, length);
-        const l = cutLabels[i];
-        const stem = l.row > 0 ? polar(CX, CY, l.r - 6, baseToAngle(c.position, length)) : null;
-        return (
-          <g key={`cut-${c.enzyme}-${i}`}>
-            <line
-              className="cut"
-              x1={t.from.x}
-              y1={t.from.y}
-              x2={t.to.x}
-              y2={t.to.y}
-              strokeWidth={1.5}
-            />
-            {stem && (
-              <line
-                className="cut"
-                x1={t.to.x}
-                y1={t.to.y}
-                x2={stem.x}
-                y2={stem.y}
-                strokeWidth={0.75}
-                opacity={0.6}
-              />
-            )}
-          </g>
-        );
-      })}
-      {cutSites.map((c, i) => (
-        <text
-          key={`cutl-${c.enzyme}-${i}`}
-          className="cut-label label-halo"
-          x={cutLabels[i].x}
-          y={cutLabels[i].y}
-          fontSize={9}
-          textAnchor="middle"
-          dominantBaseline="middle"
-        >
-          {c.enzyme}
-        </text>
-      ))}
 
       {/* center label */}
       <text className="center-name" x={CX} y={CY - 4} fontSize={14} textAnchor="middle">
@@ -380,26 +380,30 @@ function midBase(f: Feature, length: number): number {
   return ((f.start + f.end + length) / 2) % length;
 }
 
-interface PlacedLabel {
-  feature: Feature;
+interface LabelItem {
+  key: string;
   text: string;
+  angle: number; // where the leader starts on the ring
+  anchorR: number; // radius the leader starts from
+  feature?: Feature; // absent for a cut-site label
+}
+
+interface PlacedLabel extends LabelItem {
   side: "left" | "right";
   x: number;
   y: number;
-  anchor: { x: number; y: number }; // on the backbone, at the feature's midpoint
+  anchor: { x: number; y: number }; // leader start, on the ring
   elbow: { x: number; y: number }; // where the leader bends toward the label
 }
 
-// Place one label per feature on an outer ring. Labels are split by side of
-// the map, sorted top-to-bottom, and pushed apart so none overlap; each keeps
-// a leader line back to its feature's midpoint.
-function layoutLabels(features: Feature[], length: number): PlacedLabel[] {
-  const items = features.map((f) => {
-    const a = baseToAngle(midBase(f, length), length);
-    const natural = polar(CX, CY, R_LABEL, a);
+// Place every label on an outer ring. Labels are split by side of the map,
+// sorted top-to-bottom, and pushed apart so none overlap; each keeps a leader
+// line back to its anchor on the ring.
+function layoutLabels(labelItems: LabelItem[]): PlacedLabel[] {
+  const items = labelItems.map((item) => {
+    const natural = polar(CX, CY, R_LABEL, item.angle);
     return {
-      feature: f,
-      angle: a,
+      item,
       side: (natural.x >= CX ? "right" : "left") as "left" | "right",
       y: natural.y,
     };
@@ -427,13 +431,12 @@ function layoutLabels(features: Feature[], length: number): PlacedLabel[] {
       const dy = y - CY;
       const reach = Math.sqrt(Math.max(0, R_LABEL * R_LABEL - dy * dy));
       const x = side === "right" ? CX + Math.max(reach, 24) : CX - Math.max(reach, 24);
-      const anchor = polar(CX, CY, R_MARK, g.angle);
-      const bend = polar(CX, CY, R_BACKBONE + 44, g.angle);
+      const anchor = polar(CX, CY, g.item.anchorR, g.item.angle);
+      const bend = polar(CX, CY, R_BACKBONE + 44, g.item.angle);
       // keep the elbow between the anchor and the label horizontally
       const elbowX = side === "right" ? Math.min(bend.x, x - 8) : Math.max(bend.x, x + 8);
       out.push({
-        feature: g.feature,
-        text: truncate(g.feature.name, LABEL_MAX),
+        ...g.item,
         side,
         x,
         y,
@@ -445,30 +448,6 @@ function layoutLabels(features: Feature[], length: number): PlacedLabel[] {
   return out;
 }
 
-// Put each cut-site label on the innermost row (stepping outward) where its
-// box doesn't overlap a label already placed.
-function placeCutLabels(
-  cuts: CutSite[],
-  length: number,
-): { x: number; y: number; r: number; row: number }[] {
-  const placed: { x: number; y: number; w: number }[] = [];
-  return cuts.map((c) => {
-    const a = baseToAngle(c.position, length);
-    const w = c.enzyme.length * 5.4 + 4;
-    for (let row = 0; ; row++) {
-      const r = R_MARK + 23 + row * 11;
-      const p = polar(CX, CY, r, a);
-      const hit = placed.some(
-        (q) => Math.abs(q.x - p.x) < (q.w + w) / 2 && Math.abs(q.y - p.y) < 11,
-      );
-      if (!hit || row === 6) {
-        placed.push({ x: p.x, y: p.y, w });
-        return { x: p.x, y: p.y, r, row };
-      }
-    }
-  });
-}
-
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
@@ -476,11 +455,4 @@ function truncate(s: string, n: number): string {
 function labelCoords(f: Feature, length: number): string {
   const span = f.end >= f.start ? f.end - f.start : length - f.start + f.end;
   return `${f.start}–${f.end}, ${span}`;
-}
-
-function linearBackbone(): string {
-  // A faint reference ring for linear constructs.
-  return `M ${CX - R_BACKBONE} ${CY} A ${R_BACKBONE} ${R_BACKBONE} 0 1 1 ${
-    CX - R_BACKBONE
-  } ${CY - 0.01}`;
 }

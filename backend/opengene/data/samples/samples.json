@@ -1,0 +1,66 @@
+[
+  {
+    "file": "pET-demo.fasta",
+    "name": "pET-demo (T7/His/GFP)",
+    "circular": true,
+    "description": "Small synthetic expression construct: T7 promoter, lac operator, RBS, 6xHis tag, TEV site, EGFP and T7 terminator."
+  },
+  {
+    "file": "pUC19_L09137.gb",
+    "name": "pUC19",
+    "description": "High-copy cloning vector: ColE1/pUC origin, AmpR, lac promoter/operator."
+  },
+  {
+    "file": "pBR322_J01749.gb",
+    "name": "pBR322",
+    "description": "Classic low-copy cloning vector: ColE1 origin, rop, AmpR and TetR."
+  },
+  {
+    "file": "pACYC184_X06403.gb",
+    "name": "pACYC184",
+    "description": "p15A-origin vector, compatible with ColE1 plasmids: CmR (cat), TetR, and the p15A origin."
+  },
+  {
+    "file": "pEGFP-N1_U55762.gb",
+    "name": "pEGFP-N1",
+    "description": "Mammalian EGFP fusion vector: EGFP, SV40 and f1 origins, KanR/NeoR."
+  },
+  {
+    "file": "pBluescriptII-SK_X52328.gb",
+    "name": "pBluescript II SK(+)",
+    "description": "Phagemid cloning vector: T7 and T3 promoters, lac promoter/operator, f1 and ColE1 origins, AmpR."
+  },
+  {
+    "file": "pGEX-4T-1_U13853.gb",
+    "name": "pGEX-4T-1",
+    "description": "GST fusion expression vector: tac promoter, GST, thrombin site, lacIq, AmpR.",
+    "keep": [
+      {
+        "from": "tac promoter for inducible expression of glutathione S-transferase",
+        "name": "tac promoter",
+        "type": "promoter"
+      },
+      {
+        "from": "glutathione S-transferase",
+        "name": "GST",
+        "type": "CDS"
+      },
+      {
+        "from": "encodes thrombin recognition site",
+        "name": "thrombin site",
+        "type": "misc_feature"
+      },
+      {
+        "from": "lacIq",
+        "name": "lacIq",
+        "type": "CDS"
+      }
+    ]
+  },
+  {
+    "file": "EGFP_CDS.fasta",
+    "name": "EGFP CDS (linear)",
+    "circular": false,
+    "description": "The 720 bp EGFP coding sequence as a linear fragment, e.g. for testing linear records and inserts."
+  }
+]

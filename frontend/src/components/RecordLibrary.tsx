@@ -5,7 +5,6 @@ import type { PlasmidRecord, RecordSummary } from "../lib/types";
 
 interface Props {
   onOpen: (r: PlasmidRecord) => void;
-  onDemo: () => void;
   onNew: () => void;
   onImport: () => void;
   onError: (msg: string) => void;
@@ -15,10 +14,12 @@ type SortKey = "name" | "length" | "featureCount" | "updatedAt";
 
 // The start screen: every plasmid saved on this computer, as a sortable table
 // (most recently edited first by default).
-export function RecordLibrary({ onOpen, onDemo, onNew, onImport, onError }: Props) {
+export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
   const [rows, setRows] = useState<RecordSummary[] | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [restoring, setRestoring] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "updatedAt", desc: true });
 
   const load = () =>
@@ -50,6 +51,23 @@ export function RecordLibrary({ onOpen, onDemo, onNew, onImport, onError }: Prop
       load();
     } catch (e) {
       onError((e as Error).message);
+    }
+  };
+
+  const restoreSamples = async () => {
+    setRestoring(true);
+    try {
+      const { added } = await api.restoreSamples();
+      setNotice(
+        added.length
+          ? `Added ${added.length} sample plasmid${added.length === 1 ? "" : "s"}.`
+          : "All sample plasmids are already in your library.",
+      );
+      load();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -97,8 +115,13 @@ export function RecordLibrary({ onOpen, onDemo, onNew, onImport, onError }: Prop
               aria-label="Filter plasmids by name"
             />
           </div>
-          <button className="btn" onClick={onDemo}>
-            Open demo
+          <button
+            className="btn"
+            onClick={restoreSamples}
+            disabled={restoring}
+            title="Add back any of the bundled sample plasmids that aren't in your library"
+          >
+            {restoring ? "Adding…" : "Add samples"}
           </button>
           <button className="btn" onClick={onNew}>
             New sequence
@@ -165,15 +188,17 @@ export function RecordLibrary({ onOpen, onDemo, onNew, onImport, onError }: Prop
         {rows !== null && rows.length === 0 && (
           <div className="table-empty">
             <strong>No plasmids saved yet</strong>
-            Import a GenBank, FASTA, EMBL or SnapGene file, paste a sequence, or open the demo
-            construct.
+            Import a GenBank, FASTA, EMBL or SnapGene file, paste a sequence, or use{" "}
+            <b>Add samples</b> for a set of reference plasmids to explore.
           </div>
         )}
         {rows !== null && rows.length > 0 && shown?.length === 0 && (
           <div className="table-empty">No plasmids match “{query}”.</div>
         )}
 
-        <p className="library-foot">Plasmids are saved on this computer automatically.</p>
+        <p className="library-foot">
+          {notice ?? "Plasmids are saved on this computer automatically."}
+        </p>
       </div>
     </main>
   );

@@ -51,6 +51,9 @@ export const api = {
     }),
 
   listRecords: () => req<RecordSummary[]>("/records"),
+  // Add back any bundled sample plasmid that isn't in the library.
+  restoreSamples: () =>
+    req<{ added: RecordSummary[] }>("/samples/restore", { method: "POST" }),
   getRecord: (id: string) => req<PlasmidRecord>(`/records/${id}`),
   deleteRecord: (id: string) =>
     req<{ deleted: string }>(`/records/${id}`, { method: "DELETE" }),

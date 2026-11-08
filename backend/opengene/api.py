@@ -7,9 +7,10 @@ string edits from outside the engine.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import logging
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict
-from typing import Iterator, Literal
+from typing import AsyncIterator, Iterator, Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -18,6 +19,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import __version__
+from . import samples as samples_mod
 from .core import annotate as annotate_mod
 from .core import primers as primers_mod
 from .core import restriction as restriction_mod
@@ -26,7 +28,21 @@ from .io import files as io_files
 from .models import Feature, FeatureType, PlasmidRecord
 from .session import store
 
-app = FastAPI(title="OpenGene API", version=__version__)
+log = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # A new library starts with the bundled sample plasmids (once per data
+    # directory; see opengene.samples). Never let this block startup.
+    try:
+        samples_mod.seed_once(store)
+    except Exception:
+        log.exception("could not add sample plasmids")
+    yield
+
+
+app = FastAPI(title="OpenGene API", version=__version__, lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -164,6 +180,13 @@ def list_records() -> list[dict]:
     """Saved records, most recently edited first, without their sequences."""
     records = sorted(store.list(), key=lambda r: r.updated_at, reverse=True)
     return [r.summary_api() for r in records]
+
+
+@app.post("/samples/restore")
+def restore_samples() -> dict:
+    """Add back any bundled sample plasmid that isn't in the library."""
+    added = samples_mod.restore(store)
+    return {"added": [r.summary_api() for r in added]}
 
 
 @app.get("/records/{record_id}")

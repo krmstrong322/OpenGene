@@ -76,6 +76,21 @@ export function LinearMap({
   const orfBandY = primerBandY + primerRows * (THIN_H + 3) + (orfRows ? 10 : 0);
   const totalH = orfBandY + orfRows * (THIN_H + 3) + 20;
 
+  // Row (0 = lowest) for each cut-site label: the first row where it doesn't
+  // overlap a label already placed (≈4.8px per character at 8px).
+  const cutRows = useMemo(() => {
+    const rows: [number, number][][] = []; // occupied [left, right] spans per row
+    return cutSites.map((c) => {
+      const cx = PAD + (c.position / length) * usable;
+      const half = (c.enzyme.length * 4.8 + 4) / 2;
+      let row = 0;
+      while (row < 3 && (rows[row] ?? []).some(([a, b]) => cx + half > a && cx - half < b)) row++;
+      rows[row] = rows[row] ?? [];
+      rows[row].push([cx - half, cx + half]);
+      return row;
+    });
+  }, [cutSites, length, usable]);
+
   const ticks = useMemo(() => {
     const step = niceStep(length);
     const out: number[] = [];
@@ -131,27 +146,30 @@ export function LinearMap({
         />
       ))}
 
-      {/* cut sites */}
+      {/* cut sites: stems first, then labels (stacked upward above the tick
+          labels so none overlap), so no stem can run through a label */}
       {cutSites.map((c, i) => (
-        <g key={`c-${i}`}>
-          <line
-            x1={x(c.position)}
-            y1={TRACK_Y - 14}
-            x2={x(c.position)}
-            y2={TRACK_Y + 4}
-            className="cut"
-            strokeWidth={1.2}
-          />
-          <text
-            x={x(c.position)}
-            y={TRACK_Y - 16}
-            fontSize={8}
-            className="cut-label"
-            textAnchor="middle"
-          >
-            {c.enzyme}
-          </text>
-        </g>
+        <line
+          key={`cs-${i}`}
+          x1={x(c.position)}
+          y1={TRACK_Y - 20 - cutRows[i] * 9}
+          x2={x(c.position)}
+          y2={TRACK_Y + 4}
+          className="cut"
+          strokeWidth={1}
+        />
+      ))}
+      {cutSites.map((c, i) => (
+        <text
+          key={`cl-${i}`}
+          x={x(c.position)}
+          y={TRACK_Y - 22 - cutRows[i] * 9}
+          fontSize={8}
+          className="cut-label label-halo"
+          textAnchor="middle"
+        >
+          {c.enzyme}
+        </text>
       ))}
 
       {/* features as lanes below the axis */}
@@ -160,7 +178,11 @@ export function LinearMap({
         const y = TRACK_Y + 20 + lane * (TRACK_H + 6);
         const color = f.color || TYPE_COLORS[f.type] || "#8E949C";
         const active = hoveredId === f.id || selection?.featureId === f.id;
-        const segments = spanSegments(f.start, f.end, length);
+        // Drop an empty tail (a feature ending exactly at the origin, e.g.
+        // 871–0), but keep a zero-length feature's single segment.
+        const allSegs = spanSegments(f.start, f.end, length);
+        const nonEmpty = allSegs.filter(([a, b]) => b > a);
+        const segments = nonEmpty.length ? nonEmpty : allSegs;
         return (
           <g
             key={f.id}
@@ -176,7 +198,7 @@ export function LinearMap({
                 className={active ? "feature active" : "feature"}
                 d={arrowRect(x(s), x(e), y, TRACK_H, f.strand)}
                 fill={color}
-                strokeWidth={active ? 1.5 : 0.75}
+                strokeWidth={0.75}
               />
             ))}
             {(() => {
@@ -271,18 +293,23 @@ export function LinearMap({
   );
 }
 
-// A rectangle with an arrowhead on the appropriate end.
+// A bar with an arrowhead on its 3' end. Like the circular map, the head has
+// a fixed length tied to the bar height (so all tips share one shape), but
+// never takes more than 60% of the bar; very short bars are widened about
+// their middle to stay visible.
 function arrowRect(x0: number, x1: number, y: number, h: number, strand: number): string {
-  const w = Math.max(2, x1 - x0);
-  const head = Math.min(8, w);
-  if (strand >= 0) {
-    return `M ${x0} ${y} L ${x0 + w - head} ${y} L ${x0 + w} ${y + h / 2} L ${
-      x0 + w - head
-    } ${y + h} L ${x0} ${y + h} Z`;
+  let w = x1 - x0;
+  if (w < 3) {
+    x0 = (x0 + x1) / 2 - 1.5;
+    w = 3;
   }
-  return `M ${x0 + w} ${y} L ${x0 + head} ${y} L ${x0} ${y + h / 2} L ${x0 + head} ${
-    y + h
-  } L ${x0 + w} ${y + h} Z`;
+  const head = Math.min(h * 0.6, w * 0.6);
+  const xe = x0 + w;
+  const ym = y + h / 2;
+  if (strand >= 0) {
+    return `M ${x0} ${y} L ${xe - head} ${y} L ${xe} ${ym} L ${xe - head} ${y + h} L ${x0} ${y + h} Z`;
+  }
+  return `M ${xe} ${y} L ${x0 + head} ${y} L ${x0} ${ym} L ${x0 + head} ${y + h} L ${xe} ${y + h} Z`;
 }
 
 function niceStep(length: number): number {

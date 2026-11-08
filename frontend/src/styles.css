@@ -897,9 +897,7 @@ button.tag:hover {
 }
 .map-svg .feature {
   stroke: var(--surface);
-}
-.map-svg .feature.active {
-  stroke: var(--ink);
+  stroke-linejoin: round;
 }
 .map-svg .leader {
   stroke: var(--map-leader);

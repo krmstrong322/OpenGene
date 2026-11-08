@@ -28,18 +28,27 @@ const H = 600;
 const CX = W / 2;
 const CY = H / 2;
 const R_BACKBONE = 190;
-const RING_W = 16;
-// Overlay tracks: primers hug the backbone just inside it; ORFs sit on two
-// thin rings (one per strand) placed inside whatever feature rings are in use
-// (computed per-render), with a floor so they stay on-canvas.
-const R_PRIMER = R_BACKBONE - 1;
+// The first feature ring sits centred on the backbone; overlapping features
+// stack onto further rings inward.
+const RING_W = 14;
+const RING_GAP = 3;
+const R_OUTER = R_BACKBONE + RING_W / 2; // outer edge of the feature band
+// Ticks, cut sites and the selection band sit just outside the feature band.
+const R_MARK = R_OUTER + 3;
+// Overlay tracks sit inside whatever feature rings are in use (computed
+// per-render): primers first, then ORFs, with a floor so they stay on-canvas.
 const THIN_W = 7;
 const R_ORF_MIN = 30;
 // Feature labels sit on an outer ring, clear of tick and cut-site labels.
-const R_LABEL = R_BACKBONE + 62;
+const R_LABEL = R_BACKBONE + 66;
 const LABEL_GAP = 15; // min vertical spacing between labels on one side
 const LABEL_MAX = 24; // characters before a label is truncated
 const MAX_LABELS = 64; // above this many features, only the active one is labelled
+
+// Outer radius of feature ring `ring` (0 = centred on the backbone).
+function ringOuter(ring: number): number {
+  return R_OUTER - ring * (RING_W + RING_GAP);
+}
 
 // Assign features to stacked rings so overlapping features don't collide.
 function assignRings(features: Feature[], length: number): Map<string, number> {
@@ -92,8 +101,12 @@ export function CircularMap({
     ? Math.max(...Array.from(ringOf.values()))
     : -1;
   const featuresInner =
-    R_BACKBONE - 6 - maxRing * (RING_W + 4) - (maxRing >= 0 ? RING_W : 0);
-  const rOrfTop = Math.max(R_ORF_MIN, featuresInner - 12);
+    maxRing >= 0 ? ringOuter(maxRing) - RING_W : R_BACKBONE - 4;
+  const rPrimer = featuresInner - 5 - THIN_W / 2;
+  const rOrfTop = Math.max(
+    R_ORF_MIN,
+    (primers.length ? rPrimer - THIN_W : featuresInner - 5) - 5 - THIN_W / 2,
+  );
   // Stack overlapping ORFs onto successive inner rings (segment-aware, so a
   // wrapping ORF can't cover another near the origin), with a floor so deep
   // stacks stay on-canvas.
@@ -118,6 +131,7 @@ export function CircularMap({
     [labelAll, record.features, activeId],
   );
   const labels = useMemo(() => layoutLabels(labelled, length), [labelled, length]);
+  const cutLabels = useMemo(() => placeCutLabels(cutSites, length), [cutSites, length]);
 
   return (
     <svg
@@ -135,21 +149,21 @@ export function CircularMap({
         cy={CY}
         r={R_BACKBONE}
         fill="none"
-        strokeWidth={record.isCircular ? 2 : 0}
+        strokeWidth={record.isCircular ? 1.5 : 0}
       />
       {!record.isCircular && (
         <path
           className="backbone"
           d={linearBackbone()}
           fill="none"
-          strokeWidth={2}
+          strokeWidth={1.5}
           strokeDasharray="4 4"
         />
       )}
 
       {/* position ticks */}
       {tickBases.map((b) => {
-        const t = tick(CX, CY, R_BACKBONE, R_BACKBONE + 6, b, length);
+        const t = tick(CX, CY, R_MARK, R_MARK + 5, b, length);
         return (
           <g key={`tick-${b}`}>
             <line
@@ -180,8 +194,8 @@ export function CircularMap({
           d={arcPath(
             CX,
             CY,
-            R_BACKBONE - 4,
-            R_BACKBONE + 4,
+            R_MARK - 1,
+            R_MARK + 4,
             selection.start,
             selection.end,
             length,
@@ -210,15 +224,15 @@ export function CircularMap({
         );
       })}
 
-      {/* primers (overlay, just inside the backbone) */}
+      {/* primers (overlay, just inside the feature rings) */}
       {primers.map((p) => (
         <path
           key={`primer-${p.id}`}
           d={directedArcPath(
             CX,
             CY,
-            R_PRIMER - THIN_W / 2,
-            R_PRIMER + THIN_W / 2,
+            rPrimer - THIN_W / 2,
+            rPrimer + THIN_W / 2,
             p.bindStart,
             p.bindEnd,
             length,
@@ -238,7 +252,7 @@ export function CircularMap({
       {/* features */}
       {record.features.map((f) => {
         const ring = ringOf.get(f.id) ?? 0;
-        const rOuter = R_BACKBONE - 6 - ring * (RING_W + 4);
+        const rOuter = ringOuter(ring);
         const rInner = rOuter - RING_W;
         const color = f.color || TYPE_COLORS[f.type] || "#8E949C";
         const isActive = hoveredId === f.id || selection?.featureId === f.id;
@@ -248,7 +262,7 @@ export function CircularMap({
             d={directedArcPath(CX, CY, rInner, rOuter, f.start, f.end, length, f.strand)}
             className={isActive ? "feature active" : "feature"}
             fill={color}
-            strokeWidth={isActive ? 1.5 : 1}
+            strokeWidth={1}
             opacity={hoveredId && !isActive ? 0.6 : 1}
             style={{ cursor: "pointer" }}
             onClick={() => onSelectFeature(f)}
@@ -297,9 +311,12 @@ export function CircularMap({
         );
       })}
 
-      {/* restriction cut sites */}
+      {/* restriction cut sites: ticks and stems first, then labels (staggered
+          outward so none overlap), so no line can run through a label */}
       {cutSites.map((c, i) => {
-        const t = tick(CX, CY, R_BACKBONE + 6, R_BACKBONE + 16, c.position, length);
+        const t = tick(CX, CY, R_MARK, R_MARK + 11, c.position, length);
+        const l = cutLabels[i];
+        const stem = l.row > 0 ? polar(CX, CY, l.r - 6, baseToAngle(c.position, length)) : null;
         return (
           <g key={`cut-${c.enzyme}-${i}`}>
             <line
@@ -310,19 +327,33 @@ export function CircularMap({
               y2={t.to.y}
               strokeWidth={1.5}
             />
-            <text
-              className="cut-label"
-              x={t.labelPoint.x}
-              y={t.labelPoint.y}
-              fontSize={9}
-              textAnchor="middle"
-              dominantBaseline="middle"
-            >
-              {c.enzyme}
-            </text>
+            {stem && (
+              <line
+                className="cut"
+                x1={t.to.x}
+                y1={t.to.y}
+                x2={stem.x}
+                y2={stem.y}
+                strokeWidth={0.75}
+                opacity={0.6}
+              />
+            )}
           </g>
         );
       })}
+      {cutSites.map((c, i) => (
+        <text
+          key={`cutl-${c.enzyme}-${i}`}
+          className="cut-label label-halo"
+          x={cutLabels[i].x}
+          y={cutLabels[i].y}
+          fontSize={9}
+          textAnchor="middle"
+          dominantBaseline="middle"
+        >
+          {c.enzyme}
+        </text>
+      ))}
 
       {/* center label */}
       <text className="center-name" x={CX} y={CY - 4} fontSize={14} textAnchor="middle">
@@ -396,8 +427,8 @@ function layoutLabels(features: Feature[], length: number): PlacedLabel[] {
       const dy = y - CY;
       const reach = Math.sqrt(Math.max(0, R_LABEL * R_LABEL - dy * dy));
       const x = side === "right" ? CX + Math.max(reach, 24) : CX - Math.max(reach, 24);
-      const anchor = polar(CX, CY, R_BACKBONE + 3, g.angle);
-      const bend = polar(CX, CY, R_BACKBONE + 40, g.angle);
+      const anchor = polar(CX, CY, R_MARK, g.angle);
+      const bend = polar(CX, CY, R_BACKBONE + 44, g.angle);
       // keep the elbow between the anchor and the label horizontally
       const elbowX = side === "right" ? Math.min(bend.x, x - 8) : Math.max(bend.x, x + 8);
       out.push({
@@ -412,6 +443,30 @@ function layoutLabels(features: Feature[], length: number): PlacedLabel[] {
     }
   }
   return out;
+}
+
+// Put each cut-site label on the innermost row (stepping outward) where its
+// box doesn't overlap a label already placed.
+function placeCutLabels(
+  cuts: CutSite[],
+  length: number,
+): { x: number; y: number; r: number; row: number }[] {
+  const placed: { x: number; y: number; w: number }[] = [];
+  return cuts.map((c) => {
+    const a = baseToAngle(c.position, length);
+    const w = c.enzyme.length * 5.4 + 4;
+    for (let row = 0; ; row++) {
+      const r = R_MARK + 23 + row * 11;
+      const p = polar(CX, CY, r, a);
+      const hit = placed.some(
+        (q) => Math.abs(q.x - p.x) < (q.w + w) / 2 && Math.abs(q.y - p.y) < 11,
+      );
+      if (!hit || row === 6) {
+        placed.push({ x: p.x, y: p.y, w });
+        return { x: p.x, y: p.y, r, row };
+      }
+    }
+  });
 }
 
 function truncate(s: string, n: number): string {

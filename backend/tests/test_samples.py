@@ -37,6 +37,14 @@ def test_noisy_ncbi_annotations_are_replaced(built):
     assert "conflict" not in names and "old_sequence" not in names
 
 
+def test_pACYC184_resistances_detected(built):
+    # pACYC184's NCBI record marks CmR only as a ~3.5 kb misc_feature; the
+    # library now detects the actual cat CDS from V00622, so both resistance
+    # genes and the p15A origin come through auto-annotation.
+    names = {f.name for f in built["pACYC184"].features}
+    assert {"CmR (cat)", "TetR (tet)", "p15A ori"} <= names
+
+
 def test_parts_missing_from_the_library_are_carried_over(built):
     feats = {f.name: f for f in built["pGEX-4T-1"].features}
     assert feats["GST"].type.value == "CDS" and feats["GST"].end - feats["GST"].start == 720

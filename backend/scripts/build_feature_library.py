@@ -82,6 +82,9 @@ EXTRACT_RULES = [
     ("monomeric red fluorescent protein", "CDS", "mCherry", "CDS", 900),
     ("tetracycline resistance protein", "CDS", "TetR (tet)", "CDS", 1400),
     ("rop protein", "CDS", "rop / rom", "CDS", 400),
+    # Chloramphenicol acetyltransferase from Tn9 (GenBank V00622, /gene="cat").
+    ("cat", "CDS", "CmR (cat)", "CDS", 800),
+    ("chloramphenicol acetyltransferase", "CDS", "CmR (cat)", "CDS", 800),
     ("p15a origin of replication", "rep_origin", "p15A ori", "origin", 1200),
 ]
 

@@ -18,7 +18,7 @@
   {
     "file": "pACYC184_X06403.gb",
     "name": "pACYC184",
-    "description": "p15A-origin vector, compatible with ColE1 plasmids: TetR (and CmR, which the feature library doesn't detect yet)."
+    "description": "p15A-origin vector, compatible with ColE1 plasmids: CmR (cat), TetR, and the p15A origin."
   },
   {
     "file": "pEGFP-N1_U55762.gb",

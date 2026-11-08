@@ -74,3 +74,23 @@ def test_pACYC184_has_p15A_origin_and_not_cole1():
     o = oris["p15A ori"]
     assert _near(o.start, 580) and _near(o.end, 1493)
     assert o.notes["exact"] == "true"
+
+
+def test_pACYC184_has_cmr_cat_cds():
+    # The CmR (cat) library entry comes from the independent Tn9 record V00622,
+    # not from this plasmid: the pACYC184 GenBank record over-annotates the
+    # region as misc_feature 219..3805 (~3.5 kb), so the ~660 bp cat CDS and its
+    # strand are verified against V00622, not against the sample itself.
+    rec = IO.parse_file(FIXTURES / "pACYC184_X06403.gb")
+    rec.features = []
+    feats = {f.name: f for f in A.annotate(rec) if f.type.value == "CDS"}
+    assert "CmR (cat)" in feats
+    cat = feats["CmR (cat)"]
+    # 660 bp CDS on the reverse strand, wrapping the origin at position 1 of the
+    # 4245 bp circular record (end 219, start 3804 -> 219 + (4245 - 3804) = 660).
+    assert cat.strand == -1
+    span = (cat.end - cat.start) % rec.length
+    assert _near(span, 660)
+    assert _near(cat.end, 219) and _near(cat.start, 3804)
+    assert cat.notes["exact"] == "true"
+    assert cat.notes["source"] == "V00622.1"

@@ -18,7 +18,7 @@ short name (GST, tac promoter, thrombin site and lacIq in pGEX-4T-1).
 | `pET-demo.fasta` | pET-demo (T7/His/GFP) | 919 bp | circular | synthetic | small construct with many short parts |
 | `pUC19_L09137.gb` | pUC19 | 2,686 bp | circular | GenBank [L09137](https://www.ncbi.nlm.nih.gov/nuccore/L09137) | a record with no annotations of its own |
 | `pBR322_J01749.gb` | pBR322 | 4,361 bp | circular | GenBank [J01749](https://www.ncbi.nlm.nih.gov/nuccore/J01749) | a heavily annotated record (48 NCBI features) |
-| `pACYC184_X06403.gb` | pACYC184 | 4,245 bp | circular | GenBank [X06403](https://www.ncbi.nlm.nih.gov/nuccore/X06403) | the p15A origin (not ColE1) |
+| `pACYC184_X06403.gb` | pACYC184 | 4,245 bp | circular | GenBank [X06403](https://www.ncbi.nlm.nih.gov/nuccore/X06403) | the p15A origin (not ColE1); CmR (cat) + TetR |
 | `pEGFP-N1_U55762.gb` | pEGFP-N1 | 4,733 bp | circular | GenBank [U55762](https://www.ncbi.nlm.nih.gov/nuccore/U55762) | overlapping features, several origins |
 | `pBluescriptII-SK_X52328.gb` | pBluescript II SK(+) | 2,961 bp | circular | GenBank [X52328](https://www.ncbi.nlm.nih.gov/nuccore/X52328) | T7/T3 promoters, f1 origin |
 | `pGEX-4T-1_U13853.gb` | pGEX-4T-1 | 4,969 bp | circular | GenBank [U13853](https://www.ncbi.nlm.nih.gov/nuccore/U13853) | features carried over from the file |

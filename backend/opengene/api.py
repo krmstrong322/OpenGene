@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from . import samples as samples_mod
+from .core import analysis as analysis_mod
 from .core import annotate as annotate_mod
 from .core import primers as primers_mod
 from .core import restriction as restriction_mod
@@ -328,6 +329,18 @@ def redo(record_id: str) -> dict:
 # --------------------------------------------------------------------------
 # Analysis
 # --------------------------------------------------------------------------
+
+@app.get("/records/{record_id}/selection")
+def selection_info(record_id: str, start: int, end: int, feature_id: str | None = None) -> dict:
+    """Length, GC, Tm, molecular weight and translation of ``[start, end)``
+    (``start > end`` wraps the origin). With ``feature_id``, the translation is
+    that feature's: its strand, its parts only."""
+    record = _get(record_id)
+    try:
+        return asdict(analysis_mod.selection_info(record, start, end, feature_id))
+    except seq_mod.SequenceError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
 
 @app.get("/records/{record_id}/orfs")
 def orfs(record_id: str, min_aa: int = 30) -> list[dict]:

@@ -53,6 +53,8 @@ interface Props {
   onReloadCutSites: (enzymes: string[]) => void;
   enzymeInput: string;
   setEnzymeInput: (s: string) => void;
+  framePolicy: FramePolicy;
+  setFramePolicy: (p: FramePolicy) => void;
 }
 
 type Tab = "edit" | "features" | "orfs" | "enzymes" | "primers";
@@ -97,11 +99,10 @@ export function EditPanel(props: Props) {
   );
 }
 
-function EditTab({ record, selection, onRecordChange, onError }: Props) {
+function EditTab({ record, selection, onRecordChange, onError, framePolicy, setFramePolicy }: Props) {
   const [insertSeq, setInsertSeq] = useState("");
   const [insertPos, setInsertPos] = useState(0);
   const [mutBase, setMutBase] = useState("A");
-  const [framePolicy, setFramePolicy] = useState<FramePolicy>("reject");
   const [warnings, setWarnings] = useState<string[]>([]);
 
   const run = async (fn: () => Promise<PlasmidRecord>) => {
@@ -183,13 +184,13 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
           >
             Insert at {insertPos}
           </button>
-          {hasRange && (
+          {selection && (
             <button
               className="btn"
               disabled={!insertSeq}
               onClick={() => run(() => api.insert(record.id, spanStart, insertSeq, framePolicy))}
             >
-              At selection start
+              {hasRange ? "At selection start" : `At cursor (${spanStart})`}
             </button>
           )}
         </div>
@@ -233,15 +234,15 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
 
       <section className="section">
         <h4 className="section-title">Mutate</h4>
-        {selection ? (
+        {selection && selection.start < record.length ? (
           <div className="row" style={{ alignItems: "center" }}>
             <span className="sel-chip">
               <i className="swatch" />
-              base {selection.start} →
+              base {selection.start} ({record.sequence[selection.start]}) →
             </span>
             <select
               className="select"
-              style={{ width: 72 }}
+              style={{ width: 104 }}
               value={mutBase}
               onChange={(e) => setMutBase(e.target.value)}
               aria-label="New base"

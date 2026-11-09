@@ -63,6 +63,12 @@ makes them handy test files to import.
 - **Visualization** — synchronized circular + linear maps and a colored sequence
   view, with directional feature arrows, restriction cut sites, and
   origin-wrapping features
+- **Sequence view** — both strands, translations under every CDS (minus-strand and
+  spliced CDSs included), feature bars and enzyme cut sites on each line; click for a
+  cursor, drag / shift-click / shift-arrows to select; copy, copy reverse complement,
+  paste (inserts or replaces through the engine), delete; the selection shows length,
+  GC, Tm, molecular weight and its translation (a selected feature is translated on its
+  own strand). Only on-screen lines are drawn, so 100 kb+ constructs stay responsive
 - **Editing** — insert / delete / mutate / replace / reverse-complement, with
   correct feature-coordinate maintenance and circular boundary wrap-around
 - **Undo / redo** — every edit is reversible (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z);

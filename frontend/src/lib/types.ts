@@ -122,6 +122,23 @@ export interface CutSite {
   strand: number;
 }
 
+// Facts about a selected stretch, computed by the backend.
+export interface SelectionInfo {
+  start: number;
+  end: number;
+  length: number;
+  gc_content: number;
+  tm: number | null; // null: ambiguous bases, under 8 bp, or very long
+  mw_single: number | null; // g/mol
+  mw_double: number | null;
+  translation: string; // "*" = stop
+  protein_mw: number | null;
+  // "selection" (top strand from its first base) or the selected feature's
+  // name (its own strand, parts only).
+  translation_of: string;
+  translation_strand: number;
+}
+
 export interface PrimerAnalysis {
   sequence: string;
   tm: number;

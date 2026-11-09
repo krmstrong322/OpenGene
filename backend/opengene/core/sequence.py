@@ -75,6 +75,10 @@ def normalize_index(index: int, length: int, circular: bool) -> int:
 def slice_circular(seq: str, start: int, end: int) -> str:
     """Return ``seq[start:end]`` with wrap-around when ``start > end``."""
     n = len(seq)
+    if 0 <= start <= end <= n:
+        # In range and not wrapping (including the whole sequence, [0, n),
+        # which the modulo below would collapse to nothing).
+        return seq[start:end]
     start %= n if n else 1
     end %= n if n else 1
     if start <= end:

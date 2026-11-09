@@ -17,7 +17,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 Strand = Literal[1, -1]
 
-VALID_BASES = set("ACGTN")
+# IUPAC nucleotide codes: the four bases plus the ambiguity codes
+# (R = A/G, Y = C/T, S = G/C, W = A/T, K = G/T, M = A/C, B/D/H/V = not A/C/G/T,
+# N = any).
+VALID_BASES = set("ACGTRYSWKMBDHVN")
 
 
 def _new_id() -> str:

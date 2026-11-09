@@ -1,10 +1,10 @@
 """File import/export.
 
 Import:  GenBank (.gb/.gbk), FASTA (.fasta/.fa), EMBL (.embl), SnapGene (.dna).
-Export:  GenBank, FASTA, EMBL.
+Export:  GenBank, FASTA, EMBL, SnapGene (.dna).
 
-SnapGene ``.dna`` is import-only (Biopython has a reader but no writer); callers
-export to GenBank to round-trip into other tools.
+``.dna`` is read with Biopython's reader (plus feature colors, which it
+drops) and written by :mod:`.snapgene`.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from Bio.SeqFeature import CompoundLocation, SeqFeature, SimpleLocation
 from Bio.SeqRecord import SeqRecord
 
 from ..core.annotate import TYPE_COLORS
+from . import snapgene
 from ..models import Feature, FeatureType, PlasmidRecord, Segment
 
 # Biopython format name per extension.
@@ -197,6 +198,20 @@ def from_biopython(bio_rec: SeqRecord, name: str | None = None) -> PlasmidRecord
     )
 
 
+def _apply_snapgene_colors(bio_rec: SeqRecord, data: bytes) -> None:
+    """Carry each ``.dna`` feature's color into its qualifiers, where
+    :func:`from_biopython` picks colors up. White (SnapGene's usual promoter
+    fill, drawn with an outline there) is left out so the type color shows."""
+    colors, features_first = snapgene.feature_colors(data)
+    if not colors:
+        return
+    feats = bio_rec.features
+    ours = feats[: len(colors)] if features_first else feats[len(feats) - len(colors):]
+    for bf, color in zip(ours, colors):
+        if color and color.lower() not in ("#ffffff", "#fff"):
+            bf.qualifiers.setdefault("ApEinfo_fwdcolor", [color])
+
+
 def parse_bytes(data: bytes, filename: str) -> PlasmidRecord:
     fmt = format_for_extension(filename)
     if fmt is None:
@@ -204,6 +219,7 @@ def parse_bytes(data: bytes, filename: str) -> PlasmidRecord:
     if fmt == "snapgene":
         handle = io.BytesIO(data)
         bio_rec = SeqIO.read(handle, "snapgene")
+        _apply_snapgene_colors(bio_rec, data)
     else:
         text = data.decode("utf-8", errors="replace")
         bio_rec = SeqIO.read(io.StringIO(text), fmt)
@@ -262,9 +278,32 @@ def to_biopython(record: PlasmidRecord) -> SeqRecord:
 
 
 def export_string(record: PlasmidRecord, fmt: str) -> str:
+    """Export to a text format (GenBank, FASTA, EMBL)."""
     bio_fmt = _WRITE_FORMATS.get(fmt.lower())
     if bio_fmt is None:
         raise ValueError(f"unsupported export format: {fmt}")
     handle = io.StringIO()
     SeqIO.write(to_biopython(record), handle, bio_fmt)
     return handle.getvalue()
+
+
+# Export format -> (file extension, media type).
+EXPORT_FORMATS = {
+    "genbank": ("gb", "text/plain; charset=utf-8"),
+    "gb": ("gb", "text/plain; charset=utf-8"),
+    "fasta": ("fasta", "text/plain; charset=utf-8"),
+    "embl": ("embl", "text/plain; charset=utf-8"),
+    "snapgene": ("dna", "application/octet-stream"),
+    "dna": ("dna", "application/octet-stream"),
+}
+
+
+def export_bytes(record: PlasmidRecord, fmt: str) -> tuple[bytes, str, str]:
+    """Export to any supported format: ``(body, extension, media type)``."""
+    key = fmt.lower()
+    if key not in EXPORT_FORMATS:
+        raise ValueError(f"unsupported export format: {fmt}")
+    ext, media = EXPORT_FORMATS[key]
+    if ext == "dna":
+        return snapgene.to_snapgene(record), ext, media
+    return export_string(record, key).encode("utf-8"), ext, media

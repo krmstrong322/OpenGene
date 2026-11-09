@@ -15,7 +15,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from . import __version__
@@ -215,18 +215,17 @@ async def import_file(file: UploadFile = File(...)) -> dict:
     return _record_response(record)
 
 
-@app.get("/records/{record_id}/export", response_class=PlainTextResponse)
-def export_record(record_id: str, fmt: str = "genbank") -> PlainTextResponse:
+@app.get("/records/{record_id}/export")
+def export_record(record_id: str, fmt: str = "genbank") -> Response:
     record = _get(record_id)
-    ext = {"genbank": "gb", "gb": "gb", "fasta": "fasta", "embl": "embl"}.get(
-        fmt.lower(), "txt"
-    )
     try:
-        body = io_files.export_string(record, fmt)
+        body, ext, media = io_files.export_bytes(record, fmt)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    return PlainTextResponse(
-        body, headers={"Content-Disposition": _attachment(record.name, ext)}
+    return Response(
+        body,
+        media_type=media,
+        headers={"Content-Disposition": _attachment(record.name, ext)},
     )
 
 
@@ -370,9 +369,12 @@ def analyze_primer(req: PrimerAnalyzeRequest) -> dict:
 @app.post("/records/{record_id}/design_primers")
 def design_primers(record_id: str, req: PrimerDesignRequest) -> dict:
     with _edit_txn(record_id) as (record, pre):
-        fwd, rev = primers_mod.design_primer_pair(
-            record, req.region_start, req.region_end, req.target_tm
-        )
+        try:
+            fwd, rev = primers_mod.design_primer_pair(
+                record, req.region_start, req.region_end, req.target_tm
+            )
+        except seq_mod.SequenceError as e:
+            raise HTTPException(status_code=422, detail=str(e))
         record.primers.extend([fwd, rev])
         store.commit(record, pre)
         return {

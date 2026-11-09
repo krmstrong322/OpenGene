@@ -15,6 +15,26 @@ import type {
   Selection,
 } from "../lib/types";
 
+// Bases offered for a point mutation: the four bases, then the IUPAC
+// ambiguity codes with what each stands for.
+const BASE_OPTIONS: [string, string][] = [
+  ["A", ""],
+  ["C", ""],
+  ["G", ""],
+  ["T", ""],
+  ["R", "A/G"],
+  ["Y", "C/T"],
+  ["S", "G/C"],
+  ["W", "A/T"],
+  ["K", "G/T"],
+  ["M", "A/C"],
+  ["B", "not A"],
+  ["D", "not C"],
+  ["H", "not G"],
+  ["V", "not T"],
+  ["N", "any"],
+];
+
 // The common types, plus the current one if it's something else the file
 // used, so an unusual GenBank key is never silently changed by the editor.
 function typeOptions(current?: FeatureType): FeatureType[] {
@@ -226,8 +246,10 @@ function EditTab({ record, selection, onRecordChange, onError }: Props) {
               onChange={(e) => setMutBase(e.target.value)}
               aria-label="New base"
             >
-              {["A", "C", "G", "T", "N"].map((b) => (
-                <option key={b}>{b}</option>
+              {BASE_OPTIONS.map(([b, meaning]) => (
+                <option key={b} value={b}>
+                  {meaning ? `${b} (${meaning})` : b}
+                </option>
               ))}
             </select>
             <button className="btn" onClick={() => run(() => api.mutate(record.id, selection.start, mutBase))}>

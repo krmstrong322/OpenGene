@@ -54,11 +54,12 @@ makes them handy test files to import.
 
 ## What's implemented (Phase 1)
 
-- **File I/O** — import GenBank, FASTA, EMBL, SnapGene `.dna`; export GenBank/FASTA/EMBL.
+- **File I/O** — import and export GenBank, FASTA, EMBL and SnapGene `.dna`.
   Multi-part features (`join(...)`, e.g. exons) keep their parts, origin-spanning
   joins stay one wrapping feature, every GenBank feature key (`gene`, `exon`,
   `polyA_signal`, `regulatory` …) and repeated qualifier (several `/note`s) survives
-  an import/export round trip
+  an import/export round trip. Sequences may contain IUPAC ambiguity codes
+  (R, Y, S, W, K, M, B, D, H, V, N)
 - **Visualization** — synchronized circular + linear maps and a colored sequence
   view, with directional feature arrows, restriction cut sites, and
   origin-wrapping features
@@ -88,7 +89,7 @@ These were chosen for this build (see the specification for the full menu):
 |------|--------|
 | Map rendering | Custom SVG components (not OpenVectorEditor) for full control of sync + wrap-around |
 | Feature matching | Pure-Python library matching; optional NCBI BLAST+ hook when `blastn` is on `PATH` |
-| `.dna` files | Import-only (Biopython has no SnapGene writer); export via GenBank |
+| `.dna` files | Read with Biopython's reader (plus feature colors); written by OpenGene's own packet writer (`backend/opengene/io/snapgene.py`) |
 
 ## Not in this phase
 

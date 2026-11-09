@@ -18,9 +18,8 @@ from typing import Iterable, Literal
 
 from Bio.Seq import Seq
 
-from ..models import Feature, FeatureType, HistoryEvent, PlasmidRecord, Segment
+from ..models import VALID_BASES, Feature, FeatureType, HistoryEvent, PlasmidRecord, Segment
 
-VALID_BASES = set("ACGTN")
 STOP_CODONS = {"TAA", "TAG", "TGA"}
 START_CODON = "ATG"
 
@@ -36,7 +35,8 @@ class SequenceError(ValueError):
 def validate_sequence(seq: str) -> str:
     """Normalize and validate a nucleotide string via Biopython.
 
-    Uppercases, maps RNA ``U`` to ``T``, and rejects any non-ACGTN base.
+    Uppercases, maps RNA ``U`` to ``T``, and rejects anything that isn't an
+    IUPAC nucleotide code (ACGT plus the ambiguity codes RYSWKMBDHVN).
     Returns the canonical string.
     """
     seq = seq.upper().replace("U", "T")

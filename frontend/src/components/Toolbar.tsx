@@ -27,6 +27,14 @@ interface Props {
   onThemeChange: (t: ThemePref) => void;
 }
 
+// [API format, menu label, file extension]
+const EXPORT_FORMATS: [string, string, string][] = [
+  ["snapgene", "SnapGene", "dna"],
+  ["genbank", "GenBank", "gb"],
+  ["fasta", "FASTA", "fasta"],
+  ["embl", "EMBL", "embl"],
+];
+
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? "⌘" : "Ctrl+";
 
@@ -117,20 +125,16 @@ export function Toolbar({
             buttonClass="btn btn-ghost"
             title="Export"
           >
-            <a
-              className="menu-item"
-              href={api.exportUrl(record.id, "genbank")}
-              download={`${record.name}.gb`}
-            >
-              GenBank <span className="menu-sub">.gb</span>
-            </a>
-            <a
-              className="menu-item"
-              href={api.exportUrl(record.id, "fasta")}
-              download={`${record.name}.fasta`}
-            >
-              FASTA <span className="menu-sub">.fasta</span>
-            </a>
+            {EXPORT_FORMATS.map(([fmt, label, ext]) => (
+              <a
+                key={fmt}
+                className="menu-item"
+                href={api.exportUrl(record.id, fmt)}
+                download={`${record.name}.${ext}`}
+              >
+                {label} <span className="menu-sub">.{ext}</span>
+              </a>
+            ))}
           </Menu>
         )}
 

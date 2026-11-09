@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
-import { TYPE_COLORS } from "../lib/types";
+import { TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
 import { selectionSegments } from "../lib/selection";
 import { spanSegments, stackSpans } from "../lib/geometry";
 
@@ -178,11 +178,25 @@ export function LinearMap({
         const y = TRACK_Y + 20 + lane * (TRACK_H + 6);
         const color = f.color || TYPE_COLORS[f.type] || "#8E949C";
         const active = hoveredId === f.id || selection?.featureId === f.id;
-        // Drop an empty tail (a feature ending exactly at the origin, e.g.
-        // 871–0), but keep a zero-length feature's single segment.
-        const allSegs = spanSegments(f.start, f.end, length);
-        const nonEmpty = allSegs.filter(([a, b]) => b > a);
-        const segments = nonEmpty.length ? nonEmpty : allSegs;
+        // Each part of the feature, split at the origin when it wraps. Drop
+        // an empty tail (a part ending exactly at the origin, e.g. 871–0), but
+        // keep a zero-length feature's single segment.
+        const parts = featureSpans(f).map(([s, e]) => {
+          const all = spanSegments(s, e, length);
+          const nonEmpty = all.filter(([a, b]) => b > a);
+          return nonEmpty.length ? nonEmpty : all;
+        });
+        const segments = parts.flat();
+        // The arrowhead goes on the 3' end only: the right-most drawn piece of
+        // the last part on +, the left-most of the first part on −.
+        const tipPart = f.strand === -1 ? parts[0] : parts[parts.length - 1];
+        const tipSeg = f.strand === -1 ? tipPart[tipPart.length - 1] : tipPart[0];
+        // Gaps between consecutive parts (introns), drawn as a thin line;
+        // a gap across the origin is drawn in two pieces.
+        const gaps = parts.slice(1).flatMap((p, i) => {
+          const prev = parts[i];
+          return spanSegments(prev[prev.length - 1][1], p[0][0], length).filter(([a, b]) => b > a);
+        });
         return (
           <g
             key={f.id}
@@ -192,11 +206,22 @@ export function LinearMap({
             onMouseLeave={() => onHover(null)}
             opacity={hoveredId && !active ? 0.6 : 1}
           >
-            {segments.map(([s, e], si) => (
+            {gaps.map(([s, e], gi) => (
+              <rect
+                key={`gap-${gi}`}
+                className="feature-gap"
+                x={x(s)}
+                y={y + TRACK_H / 2 - 0.75}
+                width={Math.max(0, x(e) - x(s))}
+                height={1.5}
+                fill={color}
+              />
+            ))}
+            {segments.map((seg, si) => (
               <path
                 key={si}
                 className={active ? "feature active" : "feature"}
-                d={arrowRect(x(s), x(e), y, TRACK_H, f.strand)}
+                d={arrowRect(x(seg[0]), x(seg[1]), y, TRACK_H, f.strand, parts.length < 2 || seg === tipSeg)}
                 fill={color}
                 strokeWidth={0.75}
               />
@@ -223,7 +248,7 @@ export function LinearMap({
               );
             })()}
             <title>
-              {f.name} ({f.start}–{f.end}, {f.strand === 1 ? "+" : "−"})
+              {f.name} ({featureCoords(f)}, {f.strand === 1 ? "+" : "−"})
             </title>
           </g>
         );
@@ -297,13 +322,22 @@ export function LinearMap({
 // a fixed length tied to the bar height (so all tips share one shape), but
 // never takes more than 60% of the bar; very short bars are widened about
 // their middle to stay visible.
-function arrowRect(x0: number, x1: number, y: number, h: number, strand: number): string {
+// A feature block, pointed at its 3' end unless `arrow` is false (inner parts
+// of a multi-part feature are plain blocks).
+function arrowRect(
+  x0: number,
+  x1: number,
+  y: number,
+  h: number,
+  strand: number,
+  arrow = true,
+): string {
   let w = x1 - x0;
   if (w < 3) {
     x0 = (x0 + x1) / 2 - 1.5;
     w = 3;
   }
-  const head = Math.min(h * 0.6, w * 0.6);
+  const head = arrow ? Math.min(h * 0.6, w * 0.6) : 0;
   const xe = x0 + w;
   const ym = y + h / 2;
   if (strand >= 0) {

@@ -39,6 +39,25 @@ TYPE_COLORS = {
     "tag": "#2D9396",
     "RBS": "#8AA84B",
     "misc_feature": "#8E949C",
+    # Other common GenBank feature keys, kept verbatim on import.
+    "gene": "#6C8EBF",
+    "mRNA": "#5B9BD5",
+    "exon": "#3F6FA8",
+    "intron": "#A9B4C2",
+    "5'UTR": "#9DB7D6",
+    "3'UTR": "#9DB7D6",
+    "polyA_signal": "#B5524A",
+    "enhancer": "#5E9E57",
+    "LTR": "#A07A3C",
+    "protein_bind": "#B0773F",
+    "misc_binding": "#B0773F",
+    "misc_recomb": "#9C6AB0",
+    "sig_peptide": "#3E9AA0",
+    "mat_peptide": "#4A8FC0",
+    "repeat_region": "#9A8F6E",
+    "mobile_element": "#8C6D9E",
+    "ncRNA": "#C27BA0",
+    "regulatory": "#5C9A72",
 }
 
 SEED = 12  # k-mer length for seeding; parts shorter than this are scanned exactly

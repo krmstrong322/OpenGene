@@ -11,9 +11,9 @@ from __future__ import annotations
 import time
 import uuid
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Strand = Literal[1, -1]
 
@@ -25,6 +25,11 @@ def _new_id() -> str:
 
 
 class FeatureType(str, Enum):
+    """Feature types OpenGene gives special meaning to (colors, the frame guard,
+    auto-annotation). ``Feature.type`` is not limited to these: any other
+    INSDC/GenBank feature key (``gene``, ``exon``, ``polyA_signal`` ...) is kept
+    verbatim so it survives an import/export round trip."""
+
     promoter = "promoter"
     cds = "CDS"
     terminator = "terminator"
@@ -35,15 +40,72 @@ class FeatureType(str, Enum):
     misc_feature = "misc_feature"
 
 
+class Segment(BaseModel):
+    """One piece of a multi-part feature (e.g. an exon), half-open and 0-indexed.
+    ``start > end`` means the piece itself wraps the origin."""
+
+    start: int
+    end: int
+
+
+# A qualifier value: one string, or several when the file repeats the key
+# (e.g. several ``/note`` lines).
+NoteValue = Union[str, list[str]]
+
+
 class Feature(BaseModel):
     id: str = Field(default_factory=_new_id)
     name: str
-    type: FeatureType = FeatureType.misc_feature
+    type: str = FeatureType.misc_feature.value
     start: int  # 0-indexed, inclusive
     end: int  # 0-indexed, exclusive (may be < start when wrapping the origin)
     strand: Strand = 1
     color: Optional[str] = None
-    notes: dict[str, str] = Field(default_factory=dict)
+    notes: dict[str, NoteValue] = Field(default_factory=dict)
+    # Multi-part features (GenBank ``join(...)``). Empty for a simple feature.
+    # When set, the pieces are listed in forward (increasing-coordinate) order
+    # walking from ``start`` — whatever the strand — so ``start`` is the first
+    # piece's start and ``end`` the last piece's end; the gaps between pieces
+    # (introns) are not part of the feature.
+    segments: list[Segment] = Field(default_factory=list)
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _type_str(cls, v: object) -> str:
+        if isinstance(v, Enum):
+            v = v.value
+        v = str(v).strip()
+        if not v or any(c.isspace() for c in v):
+            raise ValueError("feature type must be a single non-empty word")
+        return v
+
+    @model_validator(mode="after")
+    def _segments_match_span(self) -> "Feature":
+        if len(self.segments) == 1:
+            self.segments = []
+        if self.segments and (
+            self.segments[0].start != self.start or self.segments[-1].end != self.end
+        ):
+            raise ValueError(
+                "a multi-part feature's start/end must be its first piece's start "
+                "and last piece's end"
+            )
+        return self
+
+    def spans(self) -> list[tuple[int, int]]:
+        """The ``(start, end)`` pieces of the feature (one for a simple feature)."""
+        if self.segments:
+            return [(s.start, s.end) for s in self.segments]
+        return [(self.start, self.end)]
+
+    def coding_length(self, seq_len: int) -> int:
+        """Bases actually in the feature: the outer span minus any gaps between
+        pieces. This is what must stay a multiple of 3 for a spliced CDS."""
+        if not self.segments:
+            return self.length(seq_len)
+        return sum(
+            (seq_len - s) + e if s > e else e - s for s, e in self.spans()
+        )
 
     # KNOWN LIMITATION (half-open coordinates): a feature that spans an entire
     # circular sequence is stored as [0, length); its start codon position is

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
-import { TYPE_COLORS } from "../lib/types";
+import { TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
 import {
   arcPath,
   baseToAngle,
@@ -268,23 +268,45 @@ export function CircularMap({
         const rInner = rOuter - RING_W;
         const color = f.color || TYPE_COLORS[f.type] || "#8E949C";
         const isActive = hoveredId === f.id || selection?.featureId === f.id;
+        const spans = featureSpans(f);
+        // Only the 3' piece (last walking forward on +, first on −) gets the
+        // arrowhead; gaps between pieces (introns) are a thin connecting line.
+        const tip = f.strand === -1 ? 0 : spans.length - 1;
+        const rMid = (rInner + rOuter) / 2;
         return (
-          <path
+          <g
             key={f.id}
-            d={directedArcPath(CX, CY, rInner, rOuter, f.start, f.end, length, f.strand)}
-            className={isActive ? "feature active" : "feature"}
-            fill={color}
-            strokeWidth={1}
             opacity={hoveredId && !isActive ? 0.6 : 1}
             style={{ cursor: "pointer" }}
             onClick={() => onSelectFeature(f)}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
           >
+            {spans.slice(1).map(([gapEnd], i) => (
+              <path
+                key={`gap-${i}`}
+                className="feature-gap"
+                d={arcPath(CX, CY, rMid - 1.25, rMid + 1.25, spans[i][1], gapEnd, length)}
+                fill={color}
+              />
+            ))}
+            {spans.map(([s, e], i) => (
+              <path
+                key={i}
+                d={
+                  i === tip
+                    ? directedArcPath(CX, CY, rInner, rOuter, s, e, length, f.strand)
+                    : arcPath(CX, CY, rInner, rOuter, s, e, length)
+                }
+                className={isActive ? "feature active" : "feature"}
+                fill={color}
+                strokeWidth={1}
+              />
+            ))}
             <title>
               {f.name} ({labelCoords(f, length)} bp, {f.strand === 1 ? "+" : "−"})
             </title>
-          </path>
+          </g>
         );
       })}
 
@@ -453,6 +475,9 @@ function truncate(s: string, n: number): string {
 }
 
 function labelCoords(f: Feature, length: number): string {
-  const span = f.end >= f.start ? f.end - f.start : length - f.start + f.end;
-  return `${f.start}–${f.end}, ${span}`;
+  const bases = featureSpans(f).reduce(
+    (sum, [s, e]) => sum + (e >= s ? e - s : length - s + e),
+    0,
+  );
+  return `${featureCoords(f)}, ${bases}`;
 }

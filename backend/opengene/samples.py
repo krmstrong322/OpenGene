@@ -22,7 +22,7 @@ from importlib import resources
 
 from .core import annotate as annotate_mod
 from .io import files as io_files
-from .models import FeatureType, PlasmidRecord
+from .models import PlasmidRecord
 from .session import SessionStore
 
 SEEDED_KEY = "samples_seeded"
@@ -63,13 +63,13 @@ def build_sample(spec: SampleSpec) -> PlasmidRecord:
             if f.name != keep["from"] or span in seen:
                 continue
             seen.add(span)
-            ftype = FeatureType(keep.get("type", f.type.value))
+            ftype = keep.get("type", f.type)
             carried.append(
                 f.model_copy(
                     update={
                         "name": keep.get("name", f.name),
                         "type": ftype,
-                        "color": annotate_mod.TYPE_COLORS.get(ftype.value),
+                        "color": annotate_mod.TYPE_COLORS.get(ftype),
                     }
                 )
             )

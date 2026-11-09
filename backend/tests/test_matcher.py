@@ -176,7 +176,7 @@ def test_each_origin_is_detected_in_a_backbone(origin_name):
     origin = next(e.sequence for e in A.load_library() if e.name == origin_name)
     rec = PlasmidRecord(name="t", sequence=BACKBONE + origin + BACKBONE, is_circular=True)
     hits = [f for f in A.annotate(rec) if f.name == origin_name]
-    assert hits and hits[0].type.value == "origin"
+    assert hits and hits[0].type == "origin"
     assert hits[0].notes["exact"] == "true"
 
 
@@ -184,4 +184,4 @@ def test_origins_not_called_on_random_sequence():
     rng = random.Random(11)
     seq = "".join(rng.choice("ACGT") for _ in range(4000))
     rec = PlasmidRecord(name="t", sequence=seq, is_circular=True)
-    assert not [f for f in A.annotate(rec) if f.type.value == "origin"]
+    assert not [f for f in A.annotate(rec) if f.type == "origin"]

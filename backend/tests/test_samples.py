@@ -47,8 +47,8 @@ def test_pACYC184_resistances_detected(built):
 
 def test_parts_missing_from_the_library_are_carried_over(built):
     feats = {f.name: f for f in built["pGEX-4T-1"].features}
-    assert feats["GST"].type.value == "CDS" and feats["GST"].end - feats["GST"].start == 720
-    assert feats["tac promoter"].type.value == "promoter"
+    assert feats["GST"].type == "CDS" and feats["GST"].end - feats["GST"].start == 720
+    assert feats["tac promoter"].type == "promoter"
     assert {"lacIq", "thrombin site", "AmpR (bla)"} <= set(feats)
     # The duplicated lacIq entries in the GenBank record collapse to one.
     assert sum(f.name == "lacIq" for f in feats.values()) == 1

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { selectionLength } from "../lib/selection";
-import { TYPE_COLORS } from "../lib/types";
+import { COMMON_FEATURE_TYPES, TYPE_COLORS, featureCoords } from "../lib/types";
 import type {
   CutSite,
   Feature,
@@ -15,16 +15,13 @@ import type {
   Selection,
 } from "../lib/types";
 
-const FEATURE_TYPES: FeatureType[] = [
-  "promoter",
-  "CDS",
-  "terminator",
-  "origin",
-  "primer",
-  "tag",
-  "RBS",
-  "misc_feature",
-];
+// The common types, plus the current one if it's something else the file
+// used, so an unusual GenBank key is never silently changed by the editor.
+function typeOptions(current?: FeatureType): FeatureType[] {
+  return current && !COMMON_FEATURE_TYPES.includes(current)
+    ? [current, ...COMMON_FEATURE_TYPES]
+    : COMMON_FEATURE_TYPES;
+}
 
 interface Props {
   record: PlasmidRecord;
@@ -326,8 +323,12 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
                     {f.notes.exact === "true" ? "exact" : `${f.notes.identity} · ${f.notes.coverage}`}
                   </span>
                 )}
-                <span className="feature-coords">
+                <span
+                  className="feature-coords"
+                  title={f.segments && f.segments.length > 1 ? `${f.segments.length} parts: ${featureCoords(f)}` : undefined}
+                >
                   {f.start}–{f.end} {f.strand === 1 ? "+" : "−"}
+                  {f.segments && f.segments.length > 1 && ` · ${f.segments.length} parts`}
                 </span>
                 <span className="actions">
                   <button
@@ -386,7 +387,7 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
           <label className="field">
             <span>Type</span>
             <select className="select" value={type} onChange={(e) => setType(e.target.value)}>
-              {["promoter", "CDS", "terminator", "origin", "tag", "RBS", "misc_feature"].map((t) => (
+              {typeOptions().map((t) => (
                 <option key={t}>{t}</option>
               ))}
             </select>
@@ -459,6 +460,9 @@ function FeatureEditor({
   const [color, setColor] = useState(feature.color || TYPE_COLORS[feature.type] || "#8E949C");
   const [colorTouched, setColorTouched] = useState(false);
   const [saving, setSaving] = useState(false);
+  // A multi-part feature's pieces can't be moved as one span, so its
+  // coordinates are shown but not editable (the API rejects such a change).
+  const multiPart = (feature.segments?.length ?? 0) > 1;
 
   const save = async () => {
     setSaving(true);
@@ -467,8 +471,7 @@ function FeatureEditor({
         name,
         type,
         strand: strand as 1 | -1,
-        start,
-        end,
+        ...(multiPart ? {} : { start, end }),
         ...(colorTouched ? { color } : {}),
       });
       onRecordChange(updated);
@@ -490,7 +493,7 @@ function FeatureEditor({
         <label className="field">
           <span>Type</span>
           <select className="select" value={type} onChange={(e) => setType(e.target.value as FeatureType)}>
-            {FEATURE_TYPES.map((t) => (
+            {typeOptions(feature.type).map((t) => (
               <option key={t}>{t}</option>
             ))}
           </select>
@@ -512,6 +515,7 @@ function FeatureEditor({
             value={start}
             min={0}
             max={record.length}
+            disabled={multiPart}
             onChange={(e) => setStart(Number(e.target.value))}
           />
         </label>
@@ -523,6 +527,7 @@ function FeatureEditor({
             value={end}
             min={0}
             max={record.length}
+            disabled={multiPart}
             onChange={(e) => setEnd(Number(e.target.value))}
           />
         </label>
@@ -539,7 +544,13 @@ function FeatureEditor({
           />
         </label>
       </div>
-      {record.isCircular && end < start && (
+      {multiPart && (
+        <p className="hint">
+          {feature.segments!.length} parts: {featureCoords(feature)}. Edits to the sequence move each
+          part; its coordinates can't be set as one span.
+        </p>
+      )}
+      {!multiPart && record.isCircular && end < start && (
         <p className="hint">End &lt; start: this feature wraps the origin.
         </p>
       )}

@@ -2,15 +2,45 @@
 
 export type Strand = 1 | -1;
 
-export type FeatureType =
-  | "promoter"
-  | "CDS"
-  | "terminator"
-  | "origin"
-  | "primer"
-  | "tag"
-  | "RBS"
-  | "misc_feature";
+// OpenGene's own categories plus any GenBank feature key ("gene", "exon",
+// "polyA_signal", ...), which is kept verbatim from imported files.
+export type FeatureType = string;
+
+// Types offered when adding or editing a feature, most common first.
+export const COMMON_FEATURE_TYPES: FeatureType[] = [
+  "CDS",
+  "promoter",
+  "terminator",
+  "origin",
+  "RBS",
+  "tag",
+  "primer",
+  "misc_feature",
+  "gene",
+  "mRNA",
+  "exon",
+  "intron",
+  "5'UTR",
+  "3'UTR",
+  "polyA_signal",
+  "enhancer",
+  "LTR",
+  "protein_bind",
+  "misc_binding",
+  "misc_recomb",
+  "sig_peptide",
+  "mat_peptide",
+  "repeat_region",
+  "mobile_element",
+  "ncRNA",
+  "regulatory",
+];
+
+// One piece of a multi-part (GenBank join) feature.
+export interface Segment {
+  start: number;
+  end: number; // end < start means this piece wraps the origin
+}
 
 export interface Feature {
   id: string;
@@ -20,7 +50,12 @@ export interface Feature {
   end: number; // 0-indexed, exclusive (end < start means it wraps the origin)
   strand: Strand;
   color?: string | null;
-  notes: Record<string, string>;
+  // Qualifiers from the file (and OpenGene's own, e.g. auto-annotation
+  // identity). A key the file repeats has a list of values.
+  notes: Record<string, string | string[]>;
+  // Pieces of a multi-part feature in forward order, start..end; the gaps
+  // between them (introns) are not part of it. Empty for a simple feature.
+  segments?: Segment[];
 }
 
 export interface Primer {
@@ -110,7 +145,7 @@ export interface Selection {
   wrap?: boolean;
 }
 
-export const TYPE_COLORS: Record<FeatureType, string> = {
+export const TYPE_COLORS: Record<string, string> = {
   promoter: "#4C9A6A",
   CDS: "#4A78B5",
   terminator: "#C0533F",
@@ -119,4 +154,36 @@ export const TYPE_COLORS: Record<FeatureType, string> = {
   tag: "#2D9396",
   RBS: "#8AA84B",
   misc_feature: "#8E949C",
+  gene: "#6C8EBF",
+  mRNA: "#5B9BD5",
+  exon: "#3F6FA8",
+  intron: "#A9B4C2",
+  "5'UTR": "#9DB7D6",
+  "3'UTR": "#9DB7D6",
+  polyA_signal: "#B5524A",
+  enhancer: "#5E9E57",
+  LTR: "#A07A3C",
+  protein_bind: "#B0773F",
+  misc_binding: "#B0773F",
+  misc_recomb: "#9C6AB0",
+  sig_peptide: "#3E9AA0",
+  mat_peptide: "#4A8FC0",
+  repeat_region: "#9A8F6E",
+  mobile_element: "#8C6D9E",
+  ncRNA: "#C27BA0",
+  regulatory: "#5C9A72",
 };
+
+// The [start, end) pieces of a feature: its parts, or its whole span.
+export function featureSpans(f: Feature): [number, number][] {
+  return f.segments && f.segments.length > 1
+    ? f.segments.map((s) => [s.start, s.end] as [number, number])
+    : [[f.start, f.end]];
+}
+
+// "100–200, 400–450" for a multi-part feature, "100–450" otherwise.
+export function featureCoords(f: Feature): string {
+  return featureSpans(f)
+    .map(([s, e]) => `${s}–${e}`)
+    .join(", ");
+}

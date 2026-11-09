@@ -22,7 +22,7 @@ def _origins(filename):
     rec = IO.parse_file(FIXTURES / filename)
     rec.features = []  # annotate from scratch
     feats = A.annotate(rec)  # default thresholds (0.80 / 0.80)
-    return rec, {f.name: f for f in feats if f.type.value == "origin"}
+    return rec, {f.name: f for f in feats if f.type == "origin"}
 
 
 def _near(value, target, tol=12):
@@ -83,7 +83,7 @@ def test_pACYC184_has_cmr_cat_cds():
     # strand are verified against V00622, not against the sample itself.
     rec = IO.parse_file(FIXTURES / "pACYC184_X06403.gb")
     rec.features = []
-    feats = {f.name: f for f in A.annotate(rec) if f.type.value == "CDS"}
+    feats = {f.name: f for f in A.annotate(rec) if f.type == "CDS"}
     assert "CmR (cat)" in feats
     cat = feats["CmR (cat)"]
     # 660 bp CDS on the reverse strand, wrapping the origin at position 1 of the

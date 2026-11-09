@@ -18,7 +18,7 @@ from typing import Iterable, Literal
 
 from Bio.Seq import Seq
 
-from ..models import Feature, FeatureType, HistoryEvent, PlasmidRecord
+from ..models import Feature, FeatureType, HistoryEvent, PlasmidRecord, Segment
 
 VALID_BASES = set("ACGTN")
 STOP_CODONS = {"TAA", "TAG", "TGA"}
@@ -142,16 +142,53 @@ def _map_end(x: int, a: int, b: int, length: int) -> int:
     return x + length - (b - a)
 
 
+def _map_span(
+    start: int, end: int, n: int, a: int, b: int, seq_len: int, new_n: int
+) -> tuple[int, int] | None:
+    """Where the non-empty, not-whole-circle span ``[start, end)`` lands after
+    ``[a, b)`` (a <= b) is replaced by ``seq_len`` bases; ``None`` if the edit
+    covers it entirely."""
+    span = (n - start) + end if start > end else end - start
+    if _overlap(_segments(a, b, n), _segments(start, end, n)) >= span:
+        return None
+    if a <= start < b and a < end <= b:
+        # Only an origin-wrapping span can have both ends inside the range
+        # without being covered: what survives is the part outside [a, b),
+        # which wraps around the new bases.
+        new_start, new_end = a + seq_len, a
+    else:
+        new_start = _map_start(start, a, b, seq_len)
+        new_end = _map_end(end, a, b, seq_len)
+    # Normalise: a start at the very end of a circle is its origin, an end at
+    # 0 is the very end, and a non-empty span whose ends meet now covers the
+    # whole sequence (start == end would otherwise read as zero length and hide
+    # a frame change from the guard).
+    if new_start == new_n:
+        new_start = 0
+    if new_end == 0 and new_start > 0:
+        new_end = new_n
+    if new_start == new_end:
+        new_start, new_end = 0, new_n
+    return new_start, new_end
+
+
+def _with_spans(f: Feature, spans: list[tuple[int, int]]) -> Feature:
+    """``f`` moved onto the given pieces (forward order)."""
+    segments = [Segment(start=s, end=e) for s, e in spans] if len(spans) > 1 else []
+    return f.model_copy(
+        update={"start": spans[0][0], "end": spans[-1][1], "segments": segments}
+    )
+
+
 def _replace_linear(record: PlasmidRecord, a: int, b: int, seq: str) -> list[Feature]:
     """Replace ``[a, b)`` (a <= b) with ``seq``. Returns features it removed."""
     n = record.length
     new_n = n - (b - a) + len(seq)
-    edit = _segments(a, b, n)
     kept: list[Feature] = []
     removed: list[Feature] = []
     for f in record.features:
         span = f.length(n)
-        if span == n and new_n:
+        if span == n and new_n and not f.segments:
             # Feature already covers the whole sequence. It still does after any
             # edit — a delete just shrinks the circle, an insert falls inside it
             # — so keep it covering the whole new sequence. Crucially this makes
@@ -169,31 +206,27 @@ def _replace_linear(record: PlasmidRecord, a: int, b: int, seq: str) -> list[Fea
                 point %= new_n
             kept.append(f.model_copy(update={"start": point, "end": point}))
             continue
-        if _overlap(edit, _segments(f.start, f.end, n)) >= span:
+        # Each piece of a multi-part feature moves on its own; pieces the edit
+        # covers are dropped, and the feature goes only when all of them do.
+        spans = [
+            m
+            for s, e in f.spans()
+            if (m := _map_span(s, e, n, a, b, len(seq), new_n)) is not None
+        ]
+        if not spans:
             removed.append(f)
             continue
-        if a <= f.start < b and a < f.end <= b:
-            # Only an origin-wrapping feature can have both ends inside the
-            # range without being covered: what survives is the part outside
-            # [a, b), which wraps around the new bases.
-            start, end = a + len(seq), a
-        else:
-            start = _map_start(f.start, a, b, len(seq))
-            end = _map_end(f.end, a, b, len(seq))
-        # Normalise: a start at the very end of a circle is its origin, an end
-        # at 0 is the very end, and a non-empty feature whose ends meet now
-        # covers the whole sequence (start == end would otherwise read as
-        # zero length and hide a frame change from the guard).
-        if start == new_n:
-            start = 0
-        if end == 0 and start > 0:
-            end = new_n
-        if start == end:
-            start, end = 0, new_n
-        kept.append(f.model_copy(update={"start": start, "end": end}))
+        kept.append(_with_spans(f, spans))
     record.sequence = record.sequence[:a] + seq + record.sequence[b:]
     record.features = kept
     return removed
+
+
+def _rotate_span(start: int, end: int, n: int, k: int) -> tuple[int, int]:
+    start, end = (start - k) % n, (end - k) % n
+    if end == 0 and start > 0:
+        end = n  # ends exactly at the new origin
+    return start, end
 
 
 def _rotate_raw(record: PlasmidRecord, k: int) -> None:
@@ -205,13 +238,10 @@ def _rotate_raw(record: PlasmidRecord, k: int) -> None:
     record.sequence = record.sequence[k:] + record.sequence[:k]
     rotated: list[Feature] = []
     for f in record.features:
-        if f.length(n) == n:  # covers the whole circle; leave it whole
+        if f.length(n) == n and not f.segments:  # covers the whole circle; leave it whole
             rotated.append(f)
             continue
-        start, end = (f.start - k) % n, (f.end - k) % n
-        if end == 0 and start > 0:
-            end = n  # ends exactly at the new origin
-        rotated.append(f.model_copy(update={"start": start, "end": end}))
+        rotated.append(_with_spans(f, [_rotate_span(s, e, n, k) for s, e in f.spans()]))
     record.features = rotated
 
 
@@ -276,7 +306,7 @@ def _frame_shifts(
     for f in record.features:
         if f.type != FeatureType.cds or f.id not in after:
             continue
-        change = after[f.id].length(trial.length) - f.length(record.length)
+        change = after[f.id].coding_length(trial.length) - f.coding_length(record.length)
         if change % 3:
             shifts.append((f, change))
     return shifts
@@ -467,6 +497,11 @@ def reverse_complement_record(record: PlasmidRecord) -> PlasmidRecord:
     record.sequence = reverse_complement(record.sequence)
     flipped: list[Feature] = []
     for f in record.features:
+        if f.segments:
+            # Each piece flips, and forward order reverses.
+            spans = [(n - e, n - s) for s, e in reversed(f.spans())]
+            flipped.append(_with_spans(f, spans).model_copy(update={"strand": -f.strand}))
+            continue
         new_start = n - f.end
         new_end = n - f.start
         flipped.append(

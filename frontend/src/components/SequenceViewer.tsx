@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { Feature, PlasmidRecord, Selection } from "../lib/types";
-import { TYPE_COLORS } from "../lib/types";
+import { TYPE_COLORS, featureSpans } from "../lib/types";
 import { inSelection as segInSelection } from "../lib/selection";
 
 interface Props {
@@ -19,10 +19,13 @@ function buildCoverage(record: PlasmidRecord): (Feature | undefined)[] {
     const paint = (s: number, e: number) => {
       for (let i = s; i < e; i++) if (!cov[i]) cov[i] = f;
     };
-    if (f.end >= f.start) paint(f.start, f.end);
-    else {
-      paint(f.start, record.length);
-      paint(0, f.end);
+    // Only the feature's parts, not the gaps (introns) between them.
+    for (const [start, end] of featureSpans(f)) {
+      if (end >= start) paint(start, end);
+      else {
+        paint(start, record.length);
+        paint(0, end);
+      }
     }
   }
   return cov;

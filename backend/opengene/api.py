@@ -25,7 +25,7 @@ from .core import primers as primers_mod
 from .core import restriction as restriction_mod
 from .core import sequence as seq_mod
 from .io import files as io_files
-from .models import Feature, FeatureType, PlasmidRecord
+from .models import Feature, PlasmidRecord
 from .session import store
 
 log = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ class AnnotateRequest(BaseModel):
 class FeatureUpdate(BaseModel):
     """Partial update for an existing feature. Only provided fields change."""
     name: str | None = None
-    type: FeatureType | None = None
+    type: str | None = None
     start: int | None = None
     end: int | None = None
     strand: Literal[1, -1] | None = None
@@ -445,6 +445,12 @@ def update_feature(record_id: str, feature_id: str, req: FeatureUpdate) -> dict:
             raise HTTPException(status_code=404, detail=f"feature {feature_id} not found")
         new_start = changes.get("start", feat.start)
         new_end = changes.get("end", feat.end)
+        if feat.segments and (new_start, new_end) != (feat.start, feat.end):
+            raise HTTPException(
+                status_code=422,
+                detail=f"{feat.name} has {len(feat.segments)} parts; its coordinates "
+                "can't be changed as a single span",
+            )
         _validate_feature_span(record, new_start, new_end)
         record.features = [feat.model_copy(update=changes) if f.id == feature_id else f
                            for f in record.features]

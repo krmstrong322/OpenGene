@@ -38,7 +38,7 @@ build/signing details in [desktop/README.md](desktop/README.md).
 cd backend
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                              # 47 tests
+pytest -q
 uvicorn opengene.api:app --port 8000   # API + /docs
 
 # Frontend (new terminal)
@@ -54,7 +54,11 @@ makes them handy test files to import.
 
 ## What's implemented (Phase 1)
 
-- **File I/O** — import GenBank, FASTA, EMBL, SnapGene `.dna`; export GenBank/FASTA/EMBL
+- **File I/O** — import GenBank, FASTA, EMBL, SnapGene `.dna`; export GenBank/FASTA/EMBL.
+  Multi-part features (`join(...)`, e.g. exons) keep their parts, origin-spanning
+  joins stay one wrapping feature, every GenBank feature key (`gene`, `exon`,
+  `polyA_signal`, `regulatory` …) and repeated qualifier (several `/note`s) survives
+  an import/export round trip
 - **Visualization** — synchronized circular + linear maps and a colored sequence
   view, with directional feature arrows, restriction cut sites, and
   origin-wrapping features

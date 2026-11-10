@@ -9,8 +9,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { Copy } from "lucide-react";
+import { Copy, Search } from "lucide-react";
 import { api } from "../lib/api";
+import { FindBar } from "./FindBar";
 import { selectionSegments } from "../lib/selection";
 import { cdsTranslations, complement, reverseComplement, type CdsTranslation } from "../lib/translate";
 import type {
@@ -18,6 +19,7 @@ import type {
   Feature,
   FramePolicy,
   PlasmidRecord,
+  SearchHit,
   Selection,
   SelectionInfo,
 } from "../lib/types";
@@ -283,6 +285,25 @@ export function SequencePane(props: Props) {
   const segs = selectionSegments(selection, record.length);
   const selected = segs.map(([a, b]) => record.sequence.slice(a, b)).join("");
 
+  // Find: Ctrl/⌘+F opens the bar (or refocuses it) while a record is open.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findFocus, setFindFocus] = useState(0);
+  const [hits, setHits] = useState<{ list: SearchHit[]; current: number }>({ list: [], current: -1 });
+  const openFind = useCallback(() => {
+    setFindOpen(true);
+    setFindFocus((t) => t + 1);
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        openFind();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openFind]);
+
   return (
     <section className="pane">
       <div className="pane-head">
@@ -303,6 +324,9 @@ export function SequencePane(props: Props) {
           ))}
         </div>
         <span className="spacer" />
+        <button className="btn btn-ghost btn-sm" onClick={openFind} title="Find a sequence, protein or feature (Ctrl/⌘+F)">
+          <Search size={13} /> Find
+        </button>
         <button
           className="btn btn-ghost btn-sm"
           disabled={!selected}
@@ -320,8 +344,18 @@ export function SequencePane(props: Props) {
           <Copy size={13} /> Rev. comp.
         </button>
       </div>
+      {findOpen && (
+        <FindBar
+          record={record}
+          focusToken={findFocus}
+          onClose={() => setFindOpen(false)}
+          onHits={(list, current) => setHits({ list, current })}
+          onSelect={props.onSelect}
+          onSelectFeature={props.onSelectFeature}
+        />
+      )}
       <SelectionBar record={record} selection={selection} />
-      <SequenceViewer {...props} opts={opts} />
+      <SequenceViewer {...props} opts={opts} hits={hits.list} currentHit={hits.current} />
     </section>
   );
 }
@@ -432,7 +466,9 @@ function SequenceViewer({
   onRecordChange,
   onError,
   opts,
-}: Props & { opts: Options }) {
+  hits,
+  currentHit,
+}: Props & { opts: Options; hits: SearchHit[]; currentHit: number }) {
   const n = record.length;
   const seq = record.sequence;
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -714,6 +750,20 @@ function SequenceViewer({
     visible.push(lines[i]);
   }
   const selSegs = selectionSegments(selection, n);
+  // Search hits, split at the origin and bucketed by line.
+  const hitsByLine = useMemo(() => {
+    const out = new Map<number, { a: number; b: number; strand: number; current: boolean }[]>();
+    hits.forEach((h, i) => {
+      for (const [a, b] of linearize(h.start, h.end, n)) {
+        for (let li = Math.floor(a / perLine); li <= Math.floor((b - 1) / perLine); li++) {
+          const list = out.get(li) ?? [];
+          list.push({ a, b, strand: h.strand, current: i === currentHit });
+          out.set(li, list);
+        }
+      }
+    });
+    return out;
+  }, [hits, currentHit, n, perLine]);
   const caret = selection && selection.start === selection.end ? selection.start : null;
   const hovered = hoveredId ? record.features.find((f) => f.id === hoveredId) ?? null : null;
   const hoveredSegs = hovered
@@ -770,6 +820,19 @@ function SequenceViewer({
                       height: strandH,
                       background: (hovered!.color || TYPE_COLORS[hovered!.type] || "#8E949C") + "40",
                     }}
+                  />
+                );
+              })}
+              {(hitsByLine.get(Math.floor(line.start / perLine)) ?? []).map((h, i) => {
+                const [s, e] = overlap(h.a, h.b);
+                if (e <= s) return null;
+                // A minus-strand hit marks the bottom strand when it's shown.
+                const bottom = h.strand === -1 && opts.complement;
+                return (
+                  <div
+                    key={`m${i}`}
+                    className={h.current ? "seq-hit current" : "seq-hit"}
+                    style={{ ...rect(s, e), top: strandTop + (bottom ? ROW : 0), height: ROW }}
                   />
                 );
               })}

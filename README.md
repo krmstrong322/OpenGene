@@ -69,6 +69,10 @@ makes them handy test files to import.
   paste (inserts or replaces through the engine), delete; the selection shows length,
   GC, Tm, molecular weight and its translation (a selected feature is translated on its
   own strand). Only on-screen lines are drawn, so 100 kb+ constructs stay responsive
+- **Find** (Ctrl/⌘+F) — DNA on both strands and across the origin, with IUPAC codes and
+  up to 3 mismatches; protein in all six frames and through spliced CDSs (`X` = any);
+  feature and primer names; go to a position. Hits are marked in the sequence view and
+  stepped through with Enter / Shift+Enter
 - **Editing** — insert / delete / mutate / replace / reverse-complement, with
   correct feature-coordinate maintenance and circular boundary wrap-around
 - **Undo / redo** — every edit is reversible (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z);

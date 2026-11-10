@@ -139,6 +139,19 @@ export interface SelectionInfo {
   translation_strand: number;
 }
 
+// A search match. Sequence searches come from the backend; feature-name
+// matches carry the feature (or primer) they point at.
+export interface SearchHit {
+  start: number;
+  end: number; // end < start: wraps the origin
+  strand: number;
+  mismatches: number;
+  frame?: number | null; // protein hits: reading frame on its strand
+  feature?: string | null; // protein hits inside a spliced CDS
+  featureId?: string;
+  label?: string;
+}
+
 export interface PrimerAnalysis {
   sequence: string;
   tm: number;

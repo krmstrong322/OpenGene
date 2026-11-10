@@ -24,6 +24,7 @@ from .core import analysis as analysis_mod
 from .core import annotate as annotate_mod
 from .core import primers as primers_mod
 from .core import restriction as restriction_mod
+from .core import search as search_mod
 from .core import sequence as seq_mod
 from .io import files as io_files
 from .models import Feature, PlasmidRecord
@@ -340,6 +341,23 @@ def selection_info(record_id: str, start: int, end: int, feature_id: str | None 
         return asdict(analysis_mod.selection_info(record, start, end, feature_id))
     except seq_mod.SequenceError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/records/{record_id}/search")
+def search(
+    record_id: str, query: str, kind: Literal["dna", "protein"] = "dna", mismatches: int = 0
+) -> dict:
+    """Find a DNA (both strands, IUPAC, optional mismatches) or protein (six
+    frames and spliced CDSs) sequence."""
+    record = _get(record_id)
+    try:
+        if kind == "dna":
+            result = search_mod.search_dna(record, query, mismatches)
+        else:
+            result = search_mod.search_protein(record, query)
+    except seq_mod.SequenceError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return asdict(result)
 
 
 @app.get("/records/{record_id}/orfs")

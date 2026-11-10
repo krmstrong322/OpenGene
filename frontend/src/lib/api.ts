@@ -7,6 +7,7 @@ import type {
   Primer,
   PrimerAnalysis,
   RecordSummary,
+  SearchHit,
   SelectionInfo,
 } from "./types";
 
@@ -115,6 +116,11 @@ export const api = {
     req<SelectionInfo>(
       `/records/${id}/selection?start=${start}&end=${end}` +
         (featureId ? `&feature_id=${encodeURIComponent(featureId)}` : ""),
+    ),
+
+  search: (id: string, query: string, kind: "dna" | "protein", mismatches = 0) =>
+    req<{ hits: SearchHit[]; truncated: boolean }>(
+      `/records/${id}/search?query=${encodeURIComponent(query)}&kind=${kind}&mismatches=${mismatches}`,
     ),
 
   orfs: (id: string, minAa = 30) => req<ORF[]>(`/records/${id}/orfs?min_aa=${minAa}`),

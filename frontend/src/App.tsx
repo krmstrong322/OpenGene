@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { CircularMap } from "./components/CircularMap";
 import { EditPanel } from "./components/EditPanel";
+import { ImageMenu } from "./components/ImageMenu";
 import { LinearMap } from "./components/LinearMap";
 import { NewRecordDialog } from "./components/NewRecordDialog";
 import { RecordLibrary } from "./components/RecordLibrary";
@@ -32,6 +33,8 @@ export default function App() {
   const [framePolicy, setFramePolicy] = useState<FramePolicy>("reject");
   const [theme, setTheme] = useTheme();
   const fileRef = useRef<HTMLInputElement>(null);
+  const circularRef = useRef<HTMLDivElement>(null);
+  const linearRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api
@@ -293,8 +296,16 @@ export default function App() {
                     </label>
                   )}
                 </div>
+                <span className="spacer" />
+                <ImageMenu
+                  getSvg={() => circularRef.current?.querySelector("svg.map-svg") ?? null}
+                  fileBase={`${record.name} map`}
+                  title={record.name}
+                  subtitle={`${record.length.toLocaleString()} bp · ${record.isCircular ? "circular" : "linear"}`}
+                  onError={setError}
+                />
               </div>
-              <div className="pane-body">
+              <div className="pane-body" ref={circularRef}>
                 <CircularMap
                   record={record}
                   cutSites={cutSites}
@@ -327,8 +338,16 @@ export default function App() {
             <section className="pane">
               <div className="pane-head">
                 <h3 className="pane-title">Linear view</h3>
+                <span className="spacer" />
+                <ImageMenu
+                  getSvg={() => linearRef.current?.querySelector("svg.map-svg") ?? null}
+                  fileBase={`${record.name} linear map`}
+                  title={record.name}
+                  subtitle={`${record.length.toLocaleString()} bp · ${record.isCircular ? "circular" : "linear"} · linear view`}
+                  onError={setError}
+                />
               </div>
-              <div className="pane-body">
+              <div className="pane-body" ref={linearRef}>
                 <LinearMap
                   record={record}
                   cutSites={cutSites}

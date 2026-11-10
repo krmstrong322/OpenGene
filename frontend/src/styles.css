@@ -926,6 +926,7 @@ button.tag:hover {
 }
 .map-svg .label.active {
   fill: var(--ink);
+  font-weight: 600;
 }
 .map-svg .label-halo {
   stroke: var(--surface);

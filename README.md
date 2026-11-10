@@ -69,6 +69,9 @@ makes them handy test files to import.
   paste (inserts or replaces through the engine), delete; the selection shows length,
   GC, Tm, molecular weight and its translation (a selected feature is translated on its
   own strand). Only on-screen lines are drawn, so 100 kb+ constructs stay responsive
+- **Map images** — save the circular or linear map as SVG (fonts embedded), PNG (3×) or
+  vector PDF, or print it; exports always use the light theme and leave out the
+  current selection
 - **Find** (Ctrl/⌘+F) — DNA on both strands and across the origin, with IUPAC codes and
   up to 3 mismatches; protein in all six frames and through spliced CDSs (`X` = any);
   feature and primer names; go to a position. Hits are marked in the sequence view and

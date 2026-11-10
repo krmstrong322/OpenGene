@@ -348,7 +348,6 @@ export function CircularMap({
             x={l.x}
             y={l.y}
             fontSize={f ? 11 : 10}
-            fontWeight={active ? 600 : 400}
             textAnchor={l.side === "right" ? "start" : "end"}
             dominantBaseline="middle"
           >

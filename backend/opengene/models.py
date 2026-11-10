@@ -17,7 +17,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 Strand = Literal[1, -1]
 
-VALID_BASES = set("ACGTN")
+# IUPAC nucleotide codes: the four bases plus the ambiguity codes
+# (R = A/G, Y = C/T, S = G/C, W = A/T, K = G/T, M = A/C, B/D/H/V = not A/C/G/T,
+# N = any).
+VALID_BASES = set("ACGTRYSWKMBDHVN")
 
 
 def _new_id() -> str:
@@ -150,6 +153,34 @@ class HistoryEvent(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class Trace(BaseModel):
+    """A Sanger chromatogram attached to a record read from an .ab1/.scf file.
+
+    ``peaks`` and ``quality`` have one entry per base of the record's
+    sequence: the sample index of that base's peak and its Phred quality (0
+    for a base that was typed in rather than called). Sequence edits keep
+    them in step with the bases."""
+
+    samples: dict[str, list[int]]  # "A", "C", "G", "T" -> intensity per sample
+    peaks: list[int]
+    quality: list[int]
+    meta: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> "Trace":
+        if sorted(self.samples) != ["A", "C", "G", "T"]:
+            raise ValueError("a trace needs the A, C, G and T channels")
+        if len({len(v) for v in self.samples.values()}) > 1:
+            raise ValueError("trace channels differ in length")
+        if len(self.peaks) != len(self.quality):
+            raise ValueError("trace peaks and qualities differ in length")
+        return self
+
+    @property
+    def n_samples(self) -> int:
+        return len(self.samples["A"])
+
+
 class PlasmidRecord(BaseModel):
     id: str = Field(default_factory=_new_id)
     name: str = "untitled"
@@ -162,8 +193,16 @@ class PlasmidRecord(BaseModel):
     # Last time the record was saved after any change (sequence, features,
     # primers, annotation). Stamped by SessionStore.add/save.
     updated_at: float = Field(default_factory=time.time, alias="updatedAt")
+    # Set for a record opened from a sequencing trace (.ab1 / .scf).
+    trace: Optional[Trace] = None
 
     model_config = {"populate_by_name": True}
+
+    @model_validator(mode="after")
+    def _trace_matches_sequence(self) -> "PlasmidRecord":
+        if self.trace is not None and len(self.trace.peaks) != len(self.sequence):
+            raise ValueError("trace has a different number of bases than the sequence")
+        return self
 
     def summary_api(self) -> dict:
         """Lightweight listing entry (no sequence) for the plasmid library."""
@@ -173,6 +212,7 @@ class PlasmidRecord(BaseModel):
             "length": self.length,
             "isCircular": self.is_circular,
             "featureCount": len(self.features),
+            "hasTrace": self.trace is not None,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
         }
@@ -192,6 +232,9 @@ class PlasmidRecord(BaseModel):
 
     def model_dump_api(self) -> dict:
         """Serialize with camelCase keys and a computed ``length`` field."""
-        data = self.model_dump(by_alias=True)
+        # The trace's samples are large; they're served on their own
+        # (GET /records/{id}/trace) and only flagged here.
+        data = self.model_dump(by_alias=True, exclude={"trace"})
         data["length"] = self.length
+        data["hasTrace"] = self.trace is not None
         return data

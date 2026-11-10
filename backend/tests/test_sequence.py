@@ -227,3 +227,10 @@ def test_wrap_delete_drops_all_primers():
     rec = _rec_with_primers()
     S.delete(rec, 70, 2)  # wraps the origin
     assert rec.primers == []
+
+
+def test_slice_circular_whole_sequence_and_wraps():
+    from opengene.core.sequence import slice_circular
+    assert slice_circular("ACGTA", 0, 5) == "ACGTA"
+    assert slice_circular("ACGTA", 3, 2) == "TAAC"
+    assert slice_circular("ACGTA", 4, 7) == "AAC"

@@ -93,6 +93,7 @@ export interface PlasmidRecord {
   updatedAt: number; // unix seconds, last saved change of any kind
   canUndo?: boolean; // server-reported: an undo step is available
   canRedo?: boolean;
+  hasTrace?: boolean; // opened from a sequencing trace (.ab1 / .scf)
 }
 
 // A saved plasmid in the library listing (no sequence).
@@ -102,8 +103,18 @@ export interface RecordSummary {
   length: number;
   isCircular: boolean;
   featureCount: number;
+  hasTrace?: boolean;
   createdAt: number; // unix seconds
   updatedAt: number; // unix seconds
+}
+
+// A Sanger chromatogram: four channels of samples, and per base of the
+// record's sequence its peak (sample index) and Phred quality.
+export interface TraceData {
+  samples: Record<"A" | "C" | "G" | "T", number[]>;
+  peaks: number[];
+  quality: number[];
+  meta: Record<string, string>;
 }
 
 export interface ORF {
@@ -120,6 +131,57 @@ export interface CutSite {
   position: number;
   recognition_site: string;
   strand: number;
+  overhang_type: string; // "5'", "3'", or "blunt"
+  overhang: string; // overhang bases ("" for a blunt cutter)
+  methylation: string[]; // blocking methylation types here: dam / dcm / cpg
+}
+
+// One enzyme in the picker: how often it cuts the open record, its overhang,
+// and which companies sell it.
+export interface EnzymeInfo {
+  name: string;
+  site: string;
+  size: number;
+  overhang_type: string;
+  overhang: string;
+  suppliers: string[];
+  cuts: number;
+}
+
+export const METHYL_LABELS: Record<string, string> = {
+  dam: "Dam (GATC)",
+  dcm: "Dcm (CCWGG)",
+  cpg: "CpG (CG)",
+};
+
+// Facts about a selected stretch, computed by the backend.
+export interface SelectionInfo {
+  start: number;
+  end: number;
+  length: number;
+  gc_content: number;
+  tm: number | null; // null: ambiguous bases, under 8 bp, or very long
+  mw_single: number | null; // g/mol
+  mw_double: number | null;
+  translation: string; // "*" = stop
+  protein_mw: number | null;
+  // "selection" (top strand from its first base) or the selected feature's
+  // name (its own strand, parts only).
+  translation_of: string;
+  translation_strand: number;
+}
+
+// A search match. Sequence searches come from the backend; feature-name
+// matches carry the feature (or primer) they point at.
+export interface SearchHit {
+  start: number;
+  end: number; // end < start: wraps the origin
+  strand: number;
+  mismatches: number;
+  frame?: number | null; // protein hits: reading frame on its strand
+  feature?: string | null; // protein hits inside a spliced CDS
+  featureId?: string;
+  label?: string;
 }
 
 export interface PrimerAnalysis {

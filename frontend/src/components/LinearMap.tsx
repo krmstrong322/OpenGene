@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
-import { TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
+import { METHYL_LABELS, TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
 import { selectionSegments } from "../lib/selection";
 import { spanSegments, stackSpans } from "../lib/geometry";
 
@@ -40,6 +40,15 @@ function assignLanes(features: Feature[], length: number): Map<string, number> {
     out.set(f.id, lane);
   }
   return out;
+}
+
+function cutTitle(c: CutSite): string {
+  const ends =
+    c.overhang_type === "blunt" ? "blunt ends" : `${c.overhang_type} overhang ${c.overhang}`;
+  const meth = c.methylation.length
+    ? ` · overlaps ${c.methylation.map((m) => METHYL_LABELS[m]).join(", ")}`
+    : "";
+  return `${c.enzyme} · cuts at ${c.position} · ${ends}${meth}`;
 }
 
 export function LinearMap({
@@ -155,9 +164,11 @@ export function LinearMap({
           y1={TRACK_Y - 20 - cutRows[i] * 9}
           x2={x(c.position)}
           y2={TRACK_Y + 4}
-          className="cut"
+          className={c.methylation.some((m) => m === "dam" || m === "dcm") ? "cut methyl" : "cut"}
           strokeWidth={1}
-        />
+        >
+          <title>{cutTitle(c)}</title>
+        </line>
       ))}
       {cutSites.map((c, i) => (
         <text

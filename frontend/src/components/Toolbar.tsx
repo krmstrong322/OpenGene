@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Check,
   ChevronDown,
@@ -12,6 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import { api } from "../lib/api";
+import { Menu } from "./Menu";
 import type { ThemePref } from "../lib/theme";
 import type { PlasmidRecord } from "../lib/types";
 import logoUrl from "../assets/logo.svg";
@@ -26,6 +26,14 @@ interface Props {
   theme: ThemePref;
   onThemeChange: (t: ThemePref) => void;
 }
+
+// [API format, menu label, file extension]
+const EXPORT_FORMATS: [string, string, string][] = [
+  ["snapgene", "SnapGene", "dna"],
+  ["genbank", "GenBank", "gb"],
+  ["fasta", "FASTA", "fasta"],
+  ["embl", "EMBL", "embl"],
+];
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? "⌘" : "Ctrl+";
@@ -117,20 +125,16 @@ export function Toolbar({
             buttonClass="btn btn-ghost"
             title="Export"
           >
-            <a
-              className="menu-item"
-              href={api.exportUrl(record.id, "genbank")}
-              download={`${record.name}.gb`}
-            >
-              GenBank <span className="menu-sub">.gb</span>
-            </a>
-            <a
-              className="menu-item"
-              href={api.exportUrl(record.id, "fasta")}
-              download={`${record.name}.fasta`}
-            >
-              FASTA <span className="menu-sub">.fasta</span>
-            </a>
+            {EXPORT_FORMATS.map(([fmt, label, ext]) => (
+              <a
+                key={fmt}
+                className="menu-item"
+                href={api.exportUrl(record.id, fmt)}
+                download={`${record.name}.${ext}`}
+              >
+                {label} <span className="menu-sub">.{ext}</span>
+              </a>
+            ))}
           </Menu>
         )}
 
@@ -152,56 +156,5 @@ export function Toolbar({
         </Menu>
       </div>
     </header>
-  );
-}
-
-// A button with a dropdown that closes on outside click, Escape, or choosing
-// an item.
-function Menu({
-  label,
-  buttonClass,
-  title,
-  children,
-}: {
-  label: ReactNode;
-  buttonClass: string;
-  title: string;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <div className="menu-wrap" ref={ref}>
-      <button
-        className={buttonClass}
-        onClick={() => setOpen((v) => !v)}
-        title={title}
-        aria-label={title}
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        {label}
-      </button>
-      {open && (
-        <div className="menu" role="menu" onClick={() => setOpen(false)}>
-          {children}
-        </div>
-      )}
-    </div>
   );
 }

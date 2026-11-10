@@ -152,7 +152,9 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
                   </span>
                 </td>
                 <td className="right">{r.length.toLocaleString()} bp</td>
-                <td className="muted hide-sm">{r.isCircular ? "Circular" : "Linear"}</td>
+                <td className="muted hide-sm">
+                  {r.hasTrace ? "Trace" : r.isCircular ? "Circular" : "Linear"}
+                </td>
                 <td className="right hide-md">{r.featureCount}</td>
                 <td className="muted hide-sm" title={new Date(r.updatedAt * 1000).toLocaleString()}>
                   {formatDate(r.updatedAt)}

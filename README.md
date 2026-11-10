@@ -54,14 +54,33 @@ makes them handy test files to import.
 
 ## What's implemented (Phase 1)
 
-- **File I/O** — import GenBank, FASTA, EMBL, SnapGene `.dna`; export GenBank/FASTA/EMBL.
+- **File I/O** — import and export GenBank, FASTA, EMBL and SnapGene `.dna`; open Sanger
+  traces (ABI `.ab1`/`.abi`, SCF v2/v3 `.scf`).
   Multi-part features (`join(...)`, e.g. exons) keep their parts, origin-spanning
   joins stay one wrapping feature, every GenBank feature key (`gene`, `exon`,
   `polyA_signal`, `regulatory` …) and repeated qualifier (several `/note`s) survives
-  an import/export round trip
+  an import/export round trip. Sequences may contain IUPAC ambiguity codes
+  (R, Y, S, W, K, M, B, D, H, V, N)
 - **Visualization** — synchronized circular + linear maps and a colored sequence
   view, with directional feature arrows, restriction cut sites, and
   origin-wrapping features
+- **Sequence view** — both strands, translations under every CDS (minus-strand and
+  spliced CDSs included), feature bars and enzyme cut sites on each line; click for a
+  cursor, drag / shift-click / shift-arrows to select; copy, copy reverse complement,
+  paste (inserts or replaces through the engine), delete; the selection shows length,
+  GC, Tm, molecular weight and its translation (a selected feature is translated on its
+  own strand). Only on-screen lines are drawn, so 100 kb+ constructs stay responsive
+- **Chromatograms** — a trace opens as a linear read with its four channels, base calls,
+  quality bars and low-quality (<Q20) shading; zoom, peak height, click/drag to select
+  in step with the other views. Correcting calls, inserts, deletes and
+  reverse-complement keep the trace aligned (the trace flips with the read)
+- **Map images** — save the circular or linear map as SVG (fonts embedded), PNG (3×) or
+  vector PDF, or print it; exports always use the light theme and leave out the
+  current selection
+- **Find** (Ctrl/⌘+F) — DNA on both strands and across the origin, with IUPAC codes and
+  up to 3 mismatches; protein in all six frames and through spliced CDSs (`X` = any);
+  feature and primer names; go to a position. Hits are marked in the sequence view and
+  stepped through with Enter / Shift+Enter
 - **Editing** — insert / delete / mutate / replace / reverse-complement, with
   correct feature-coordinate maintenance and circular boundary wrap-around
 - **Undo / redo** — every edit is reversible (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z);
@@ -71,7 +90,10 @@ makes them handy test files to import.
 - **Map overlays** — toggle designed primers and 6-frame ORFs as directional
   tracks on both the circular and linear maps
 - **ORF detection** across all 6 reading frames (including origin-crossing ORFs)
-- **Restriction** — cut-site mapping, digest fragment sizes, unique cutters (NEB set)
+- **Restriction** — an enzyme picker over the commercial catalog (search, filter by
+  supplier, ready-made sets: unique cutters, unique + 2-cutters, 6+ bp, blunt), digest
+  fragment sizes, the overhang (5′/3′/blunt and its bases) at each cut site, and a flag
+  where a site overlaps a Dam/Dcm/CpG methylation motif
 - **Primers** — Tm / GC / hairpin / dimer analysis and PCR primer-pair design (primer3)
 - **Auto-annotation** — pure-Python seed-and-extend matching against a bundled
   feature library (promoters, terminators, tags, resistance genes, fluorescent
@@ -88,7 +110,7 @@ These were chosen for this build (see the specification for the full menu):
 |------|--------|
 | Map rendering | Custom SVG components (not OpenVectorEditor) for full control of sync + wrap-around |
 | Feature matching | Pure-Python library matching; optional NCBI BLAST+ hook when `blastn` is on `PATH` |
-| `.dna` files | Import-only (Biopython has no SnapGene writer); export via GenBank |
+| `.dna` files | Read with Biopython's reader (plus feature colors); written by OpenGene's own packet writer (`backend/opengene/io/snapgene.py`) |
 
 ## Not in this phase
 

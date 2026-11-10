@@ -11,7 +11,29 @@ from dataclasses import dataclass, field
 import primer3
 
 from ..models import PlasmidRecord, Primer
-from .sequence import gc_content, reverse_complement, slice_circular, validate_sequence
+from .sequence import (
+    SequenceError,
+    gc_content,
+    reverse_complement,
+    slice_circular,
+    validate_sequence,
+)
+
+
+def _require_acgt(seq: str, what: str = "primer") -> None:
+    """primer3's thermodynamics need definite bases; say so clearly instead of
+    letting its ValueError surface as a server error."""
+    ambiguous = sorted(set(seq) - set("ACGT"))
+    if ambiguous:
+        raise SequenceError(
+            f"the {what} contains ambiguous bases ({', '.join(ambiguous)}), so its "
+            "Tm and structure can't be calculated; use definite bases (A, C, G, T)"
+        )
+
+
+def _tm(seq: str, what: str) -> float:
+    _require_acgt(seq, what)
+    return primer3.calc_tm(seq)
 
 
 @dataclass
@@ -28,7 +50,7 @@ class PrimerAnalysis:
 def analyze_primer(seq: str, target_tm: float = 60.0) -> PrimerAnalysis:
     """Compute Tm, GC, and structural warnings for a single oligo."""
     seq = validate_sequence(seq)
-    tm = round(primer3.calc_tm(seq), 2)
+    tm = round(_tm(seq, "primer"), 2)
     hairpin = primer3.calc_hairpin(seq)
     homodimer = primer3.calc_homodimer(seq)
     gc = gc_content(seq)
@@ -60,7 +82,10 @@ def analyze_primer(seq: str, target_tm: float = 60.0) -> PrimerAnalysis:
 
 
 def heterodimer_tm(seq_a: str, seq_b: str) -> float:
-    res = primer3.calc_heterodimer(validate_sequence(seq_a), validate_sequence(seq_b))
+    seq_a, seq_b = validate_sequence(seq_a), validate_sequence(seq_b)
+    _require_acgt(seq_a)
+    _require_acgt(seq_b)
+    res = primer3.calc_heterodimer(seq_a, seq_b)
     return round(res.tm, 2) if res.structure_found else 0.0
 
 
@@ -69,11 +94,13 @@ def _grow_primer(
 ) -> tuple[str, float]:
     """Extend an oligo from ``start`` until its Tm reaches ``target_tm``."""
     best_seq = template[start:start + length_min]
-    best_tm = primer3.calc_tm(best_seq)
+    best_tm = _tm(best_seq, "forward primer site")
     for ln in range(length_min, length_max + 1):
         candidate = template[start:start + ln]
         if len(candidate) < length_min:
             break
+        if set(candidate) - set("ACGT"):
+            break  # can't grow through an ambiguous base; keep the best so far
         tm = primer3.calc_tm(candidate)
         if abs(tm - target_tm) < abs(best_tm - target_tm):
             best_seq, best_tm = candidate, tm
@@ -107,11 +134,13 @@ def design_primer_pair(
     # Reverse primer: take top-strand bases ending at region_end, then revcomp.
     rev_region = slice_circular(seq, region_end - max_len, region_end) \
         if record.is_circular else seq[max(0, region_end - max_len):region_end]
-    rev_top = rev_region[::-1]  # grow from the 3' end inward
-    best_rc, best_tm = rev_top[:min_len], primer3.calc_tm(reverse_complement(rev_top[:min_len]))
+    first = reverse_complement(rev_region[-min_len:])
+    best_rc, best_tm = first, _tm(first, "reverse primer site")
     for ln in range(min_len, max_len + 1):
         top = rev_region[-ln:] if ln <= len(rev_region) else rev_region
         cand = reverse_complement(top)
+        if set(cand) - set("ACGT"):
+            break  # can't grow through an ambiguous base; keep the best so far
         tm = primer3.calc_tm(cand)
         if abs(tm - target_tm) < abs(best_tm - target_tm):
             best_rc, best_tm = cand, tm

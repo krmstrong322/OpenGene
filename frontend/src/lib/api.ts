@@ -1,5 +1,6 @@
 import type {
   CutSite,
+  EnzymeInfo,
   Feature,
   FramePolicy,
   ORF,
@@ -7,6 +8,9 @@ import type {
   Primer,
   PrimerAnalysis,
   RecordSummary,
+  SearchHit,
+  SelectionInfo,
+  TraceData,
 } from "./types";
 
 // In the browser / dev server the Vite proxy serves the API under /api.
@@ -110,6 +114,19 @@ export const api = {
   undo: (id: string) => req<PlasmidRecord>(`/records/${id}/undo`, { method: "POST" }),
   redo: (id: string) => req<PlasmidRecord>(`/records/${id}/redo`, { method: "POST" }),
 
+  selectionInfo: (id: string, start: number, end: number, featureId?: string) =>
+    req<SelectionInfo>(
+      `/records/${id}/selection?start=${start}&end=${end}` +
+        (featureId ? `&feature_id=${encodeURIComponent(featureId)}` : ""),
+    ),
+
+  search: (id: string, query: string, kind: "dna" | "protein", mismatches = 0) =>
+    req<{ hits: SearchHit[]; truncated: boolean }>(
+      `/records/${id}/search?query=${encodeURIComponent(query)}&kind=${kind}&mismatches=${mismatches}`,
+    ),
+
+  trace: (id: string) => req<TraceData>(`/records/${id}/trace`),
+
   orfs: (id: string, minAa = 30) => req<ORF[]>(`/records/${id}/orfs?min_aa=${minAa}`),
 
   cutSites: (id: string, enzymes?: string[]) =>
@@ -124,6 +141,8 @@ export const api = {
     ),
 
   uniqueCutters: (id: string) => req<string[]>(`/records/${id}/unique_cutters`),
+
+  enzymes: (id: string) => req<EnzymeInfo[]>(`/records/${id}/enzymes`),
 
   analyzePrimer: (sequence: string, targetTm = 60) =>
     req<PrimerAnalysis>("/primers/analyze", {

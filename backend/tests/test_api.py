@@ -284,7 +284,7 @@ def test_list_records_is_a_light_summary_newest_first(client):
     rows = client.get("/records").json()
     assert [r["id"] for r in rows] == [a["id"], b["id"]]  # a was edited last
     assert set(rows[0]) == {
-        "id", "name", "length", "isCircular", "featureCount", "createdAt", "updatedAt"
+        "id", "name", "length", "isCircular", "featureCount", "hasTrace", "createdAt", "updatedAt"
     }
     assert rows[0]["length"] == 11
 
@@ -299,3 +299,64 @@ def test_any_change_counts_as_an_edit_for_the_library(client):
     rows = client.get("/records").json()
     assert rows[0]["id"] == a["id"]
     assert rows[0]["updatedAt"] >= rows[1]["updatedAt"]
+
+
+def test_selection_info(client):
+    seq = "ATGGCTAAAGGTTAA" + "GCGCGCATATAT" * 5
+    rec = _create(client, seq=seq)
+    r = client.get(f"/records/{rec['id']}/selection", params={"start": 0, "end": 15})
+    assert r.status_code == 200
+    info = r.json()
+    assert info["length"] == 15
+    assert info["translation"] == "MAKG*"
+    assert info["tm"] is not None and info["mw_double"] > info["mw_single"] > 0
+    assert info["protein_mw"] > 0
+    assert info["gc_content"] == round(100 * 5 / 15, 2)
+
+
+def test_selection_info_wraps_and_handles_ambiguity(client):
+    rec = _create(client, seq="ACGTACGTAC" + "RYN" + "GGGCCC")
+    n = rec["length"]
+    wrap = client.get(f"/records/{rec['id']}/selection", params={"start": n - 3, "end": 3}).json()
+    assert wrap["length"] == 6
+    amb = client.get(f"/records/{rec['id']}/selection", params={"start": 5, "end": 16}).json()
+    assert amb["tm"] is None and amb["mw_single"] is None
+    assert client.get(f"/records/{rec['id']}/selection", params={"start": 0, "end": n + 5}).status_code == 422
+    caret = client.get(f"/records/{rec['id']}/selection", params={"start": 4, "end": 4}).json()
+    assert caret["length"] == 0 and caret["translation"] == ""
+
+
+def test_selection_info_of_the_whole_sequence(client):
+    seq = "ATGGCTAAAGGTTAA" + "GCGCGCATATAT" * 5
+    rec = _create(client, seq=seq)
+    info = client.get(f"/records/{rec['id']}/selection", params={"start": 0, "end": len(seq)}).json()
+    assert info["length"] == len(seq)
+
+
+def test_selection_info_translates_a_selected_feature_on_its_own_strand(client):
+    from opengene.core.sequence import reverse_complement
+
+    cds = "ATGGCTAAAGGTTAA"  # MAKG*
+    seq = "CCCC" + reverse_complement(cds) + "GGGG"
+    rec = _create(client, seq=seq)
+    rid = rec["id"]
+    r = client.post(f"/records/{rid}/features",
+                    json={"name": "rev", "type": "CDS", "start": 4, "end": 19, "strand": -1})
+    fid = r.json()["features"][0]["id"]
+    info = client.get(f"/records/{rid}/selection",
+                      params={"start": 4, "end": 19, "feature_id": fid}).json()
+    assert info["translation"] == "MAKG*"
+    assert info["translation_of"] == "rev" and info["translation_strand"] == -1
+    plain = client.get(f"/records/{rid}/selection", params={"start": 4, "end": 19}).json()
+    assert plain["translation_of"] == "selection" and plain["translation"] != "MAKG*"
+
+
+def test_enzymes_endpoint_and_cut_site_detail(client):
+    rec = _create(client, seq="AA" + "GAATTC" + "AAAA" + "GGATCC" + "AA")
+    cat = client.get(f"/records/{rec['id']}/enzymes")
+    assert cat.status_code == 200
+    by = {e["name"]: e for e in cat.json()}
+    assert by["EcoRI"]["cuts"] == 1 and by["EcoRI"]["overhang_type"] == "5'"
+    assert "New England Biolabs" in by["EcoRI"]["suppliers"]
+    sites = client.get(f"/records/{rec['id']}/cut_sites", params={"enzymes": "BamHI"}).json()
+    assert sites and sites[0]["overhang"] == "GATC" and "methylation" in sites[0]

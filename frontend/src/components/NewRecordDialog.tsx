@@ -62,7 +62,7 @@ export function NewRecordDialog({ onClose, onCreated, onError }: Props) {
               className="textarea mono"
               value={seq}
               onChange={(e) => setSeq(e.target.value)}
-              placeholder="ACGTN…"
+              placeholder="ACGT… (IUPAC codes such as R, Y and N are allowed)"
               rows={6}
               spellCheck={false}
             />

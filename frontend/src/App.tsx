@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { ChromatogramPane } from "./components/ChromatogramPane";
 import { CircularMap } from "./components/CircularMap";
 import { EditPanel } from "./components/EditPanel";
+import { ImageMenu } from "./components/ImageMenu";
 import { LinearMap } from "./components/LinearMap";
 import { NewRecordDialog } from "./components/NewRecordDialog";
 import { RecordLibrary } from "./components/RecordLibrary";
-import { SequenceViewer } from "./components/SequenceViewer";
+import { SequencePane } from "./components/SequenceViewer";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
 import { normalizeSpan, selectionLength } from "./lib/selection";
 import { useTheme } from "./lib/theme";
-import type { CutSite, Feature, ORF, PlasmidRecord, Selection } from "./lib/types";
+import type { CutSite, Feature, FramePolicy, ORF, PlasmidRecord, Selection } from "./lib/types";
 import { TYPE_COLORS } from "./lib/types";
 
 export default function App() {
@@ -27,8 +29,13 @@ export default function App() {
   const [showOrfs, setShowOrfs] = useState(false);
   const [showPrimers, setShowPrimers] = useState(true);
   const [showNew, setShowNew] = useState(false);
+  // How edits that would break a CDS reading frame are handled; shared by the
+  // Edit tab and by paste/delete in the sequence view.
+  const [framePolicy, setFramePolicy] = useState<FramePolicy>("reject");
   const [theme, setTheme] = useTheme();
   const fileRef = useRef<HTMLInputElement>(null);
+  const circularRef = useRef<HTMLDivElement>(null);
+  const linearRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api
@@ -235,7 +242,7 @@ export default function App() {
       <input
         ref={fileRef}
         type="file"
-        accept=".gb,.gbk,.genbank,.fasta,.fa,.fna,.embl,.dna"
+        accept=".gb,.gbk,.genbank,.fasta,.fa,.fna,.embl,.dna,.ab1,.abi,.scf"
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -257,6 +264,15 @@ export default function App() {
       ) : (
         <main className="workspace">
           <div className="main-pane">
+            {/* For a sequencing read the trace is the main view, so it leads. */}
+            {record.hasTrace && (
+              <ChromatogramPane
+                record={record}
+                selection={selection}
+                onSelect={setSelection}
+                onError={setError}
+              />
+            )}
             <section className="pane">
               <div className="pane-head">
                 <h3 className="pane-title">Map</h3>
@@ -290,8 +306,16 @@ export default function App() {
                     </label>
                   )}
                 </div>
+                <span className="spacer" />
+                <ImageMenu
+                  getSvg={() => circularRef.current?.querySelector("svg.map-svg") ?? null}
+                  fileBase={`${record.name} map`}
+                  title={record.name}
+                  subtitle={`${record.length.toLocaleString()} bp · ${record.isCircular ? "circular" : "linear"}`}
+                  onError={setError}
+                />
               </div>
-              <div className="pane-body">
+              <div className="pane-body" ref={circularRef}>
                 <CircularMap
                   record={record}
                   cutSites={cutSites}
@@ -324,8 +348,16 @@ export default function App() {
             <section className="pane">
               <div className="pane-head">
                 <h3 className="pane-title">Linear view</h3>
+                <span className="spacer" />
+                <ImageMenu
+                  getSvg={() => linearRef.current?.querySelector("svg.map-svg") ?? null}
+                  fileBase={`${record.name} linear map`}
+                  title={record.name}
+                  subtitle={`${record.length.toLocaleString()} bp · ${record.isCircular ? "circular" : "linear"} · linear view`}
+                  onError={setError}
+                />
               </div>
-              <div className="pane-body">
+              <div className="pane-body" ref={linearRef}>
                 <LinearMap
                   record={record}
                   cutSites={cutSites}
@@ -340,21 +372,18 @@ export default function App() {
               </div>
             </section>
 
-            <section className="pane">
-              <div className="pane-head">
-                <h3 className="pane-title">Sequence</h3>
-                <span className="spacer" />
-                <span className="meta">Click a base; shift-click to extend</span>
-              </div>
-              <div className="pane-body flush">
-                <SequenceViewer
-                  record={record}
-                  selection={selection}
-                  onSelect={setSelection}
-                  hoveredId={hoveredId}
-                />
-              </div>
-            </section>
+            <SequencePane
+              record={record}
+              selection={selection}
+              onSelect={setSelection}
+              hoveredId={hoveredId}
+              onHover={setHoveredId}
+              onSelectFeature={selectFeature}
+              cutSites={cutSites}
+              framePolicy={framePolicy}
+              onRecordChange={setRecord}
+              onError={setError}
+            />
           </div>
 
           <EditPanel
@@ -367,6 +396,8 @@ export default function App() {
             onReloadCutSites={reloadCutSites}
             enzymeInput={enzymeInput}
             setEnzymeInput={setEnzymeInput}
+            framePolicy={framePolicy}
+            setFramePolicy={setFramePolicy}
           />
         </main>
       )}
@@ -446,7 +477,8 @@ function StatusBar({
 
 function describeSelection(sel: Selection, length: number): string {
   const bp = selectionLength(sel, length);
-  if (bp <= 1) return `Position ${Math.min(sel.start, sel.end)}`;
+  if (bp === 0) return `Cursor ${sel.start}`;
+  if (bp === 1) return `Position ${Math.min(sel.start, sel.end)}`;
   const lo = sel.wrap ? sel.start : Math.min(sel.start, sel.end);
   const hi = sel.wrap ? sel.end : Math.max(sel.start, sel.end);
   return `${lo}–${hi}${sel.wrap ? " (wraps origin)" : ""} · ${bp.toLocaleString()} bp`;

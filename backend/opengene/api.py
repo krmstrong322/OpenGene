@@ -15,14 +15,16 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from . import __version__
 from . import samples as samples_mod
+from .core import analysis as analysis_mod
 from .core import annotate as annotate_mod
 from .core import primers as primers_mod
 from .core import restriction as restriction_mod
+from .core import search as search_mod
 from .core import sequence as seq_mod
 from .io import files as io_files
 from .models import Feature, PlasmidRecord
@@ -215,18 +217,17 @@ async def import_file(file: UploadFile = File(...)) -> dict:
     return _record_response(record)
 
 
-@app.get("/records/{record_id}/export", response_class=PlainTextResponse)
-def export_record(record_id: str, fmt: str = "genbank") -> PlainTextResponse:
+@app.get("/records/{record_id}/export")
+def export_record(record_id: str, fmt: str = "genbank") -> Response:
     record = _get(record_id)
-    ext = {"genbank": "gb", "gb": "gb", "fasta": "fasta", "embl": "embl"}.get(
-        fmt.lower(), "txt"
-    )
     try:
-        body = io_files.export_string(record, fmt)
+        body, ext, media = io_files.export_bytes(record, fmt)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    return PlainTextResponse(
-        body, headers={"Content-Disposition": _attachment(record.name, ext)}
+    return Response(
+        body,
+        media_type=media,
+        headers={"Content-Disposition": _attachment(record.name, ext)},
     )
 
 
@@ -330,6 +331,45 @@ def redo(record_id: str) -> dict:
 # Analysis
 # --------------------------------------------------------------------------
 
+@app.get("/records/{record_id}/selection")
+def selection_info(record_id: str, start: int, end: int, feature_id: str | None = None) -> dict:
+    """Length, GC, Tm, molecular weight and translation of ``[start, end)``
+    (``start > end`` wraps the origin). With ``feature_id``, the translation is
+    that feature's: its strand, its parts only."""
+    record = _get(record_id)
+    try:
+        return asdict(analysis_mod.selection_info(record, start, end, feature_id))
+    except seq_mod.SequenceError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/records/{record_id}/search")
+def search(
+    record_id: str, query: str, kind: Literal["dna", "protein"] = "dna", mismatches: int = 0
+) -> dict:
+    """Find a DNA (both strands, IUPAC, optional mismatches) or protein (six
+    frames and spliced CDSs) sequence."""
+    record = _get(record_id)
+    try:
+        if kind == "dna":
+            result = search_mod.search_dna(record, query, mismatches)
+        else:
+            result = search_mod.search_protein(record, query)
+    except seq_mod.SequenceError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return asdict(result)
+
+
+@app.get("/records/{record_id}/trace")
+def get_trace(record_id: str) -> dict:
+    """The record's sequencing trace: channels A/C/G/T, a peak (sample index)
+    and Phred quality per base, and run details."""
+    record = _get(record_id)
+    if record.trace is None:
+        raise HTTPException(status_code=404, detail="this record has no sequencing trace")
+    return record.trace.model_dump()
+
+
 @app.get("/records/{record_id}/orfs")
 def orfs(record_id: str, min_aa: int = 30) -> list[dict]:
     record = _get(record_id)
@@ -347,6 +387,14 @@ def cut_sites(record_id: str, enzymes: str | None = None) -> list[dict]:
 def digest(record_id: str, req: DigestRequest) -> list[dict]:
     record = _get(record_id)
     return [asdict(d) for d in restriction_mod.digest(record, req.enzymes)]
+
+
+@app.get("/records/{record_id}/enzymes")
+def enzymes(record_id: str) -> list[dict]:
+    """The commercial enzyme catalog with how often each cuts this record,
+    its overhang and its suppliers — for the enzyme picker."""
+    record = _get(record_id)
+    return [asdict(e) for e in restriction_mod.enzyme_catalog(record)]
 
 
 @app.get("/records/{record_id}/unique_cutters")
@@ -370,9 +418,12 @@ def analyze_primer(req: PrimerAnalyzeRequest) -> dict:
 @app.post("/records/{record_id}/design_primers")
 def design_primers(record_id: str, req: PrimerDesignRequest) -> dict:
     with _edit_txn(record_id) as (record, pre):
-        fwd, rev = primers_mod.design_primer_pair(
-            record, req.region_start, req.region_end, req.target_tm
-        )
+        try:
+            fwd, rev = primers_mod.design_primer_pair(
+                record, req.region_start, req.region_end, req.target_tm
+            )
+        except seq_mod.SequenceError as e:
+            raise HTTPException(status_code=422, detail=str(e))
         record.primers.extend([fwd, rev])
         store.commit(record, pre)
         return {

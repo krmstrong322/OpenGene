@@ -9,6 +9,7 @@ import type {
   RecordSummary,
   SearchHit,
   SelectionInfo,
+  TraceData,
 } from "./types";
 
 // In the browser / dev server the Vite proxy serves the API under /api.
@@ -122,6 +123,8 @@ export const api = {
     req<{ hits: SearchHit[]; truncated: boolean }>(
       `/records/${id}/search?query=${encodeURIComponent(query)}&kind=${kind}&mismatches=${mismatches}`,
     ),
+
+  trace: (id: string) => req<TraceData>(`/records/${id}/trace`),
 
   orfs: (id: string, minAa = 30) => req<ORF[]>(`/records/${id}/orfs?min_aa=${minAa}`),
 

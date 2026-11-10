@@ -1,6 +1,7 @@
 """File import/export.
 
-Import:  GenBank (.gb/.gbk), FASTA (.fasta/.fa), EMBL (.embl), SnapGene (.dna).
+Import:  GenBank (.gb/.gbk), FASTA (.fasta/.fa), EMBL (.embl), SnapGene (.dna),
+         sequencing traces (.ab1/.abi, .scf; see :mod:`.traces`).
 Export:  GenBank, FASTA, EMBL, SnapGene (.dna).
 
 ``.dna`` is read with Biopython's reader (plus feature colors, which it
@@ -18,7 +19,7 @@ from Bio.SeqFeature import CompoundLocation, SeqFeature, SimpleLocation
 from Bio.SeqRecord import SeqRecord
 
 from ..core.annotate import TYPE_COLORS
-from . import snapgene
+from . import snapgene, traces
 from ..models import Feature, FeatureType, PlasmidRecord, Segment
 
 # Biopython format name per extension.
@@ -31,6 +32,9 @@ _READ_FORMATS = {
     ".fna": "fasta",
     ".embl": "embl",
     ".dna": "snapgene",
+    ".ab1": "abi",
+    ".abi": "abi",
+    ".scf": "scf",
 }
 
 _WRITE_FORMATS = {
@@ -216,6 +220,9 @@ def parse_bytes(data: bytes, filename: str) -> PlasmidRecord:
     fmt = format_for_extension(filename)
     if fmt is None:
         raise ValueError(f"unsupported file extension: {filename}")
+    if fmt in ("abi", "scf"):
+        parse = traces.parse_abi if fmt == "abi" else traces.parse_scf
+        return parse(data, Path(filename).stem)
     if fmt == "snapgene":
         handle = io.BytesIO(data)
         bio_rec = SeqIO.read(handle, "snapgene")

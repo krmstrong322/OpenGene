@@ -39,6 +39,13 @@
   --seq-sel: rgba(245, 197, 66, 0.45);
   --seq-hit: rgba(31, 95, 174, 0.14);
   --seq-hit-line: rgba(31, 95, 174, 0.7);
+  --trace-a: #23963d;
+  --trace-c: #2563c9;
+  --trace-g: #1d1f22;
+  --trace-t: #d23224;
+  --trace-lowq: rgba(29, 31, 34, 0.05);
+  --trace-qual: #b7c7dc;
+  --trace-qual-low: #e3c9c5;
   --map-backbone: #c9cac6;
   --map-tick: #a3a6ab;
   --map-text: #7a7f87;
@@ -85,6 +92,13 @@
     --seq-sel: rgba(245, 197, 66, 0.28);
     --seq-hit: rgba(106, 158, 224, 0.18);
     --seq-hit-line: rgba(106, 158, 224, 0.8);
+    --trace-a: #5cc36f;
+    --trace-c: #6aa1f0;
+    --trace-g: #e4e5e7;
+    --trace-t: #f0766b;
+    --trace-lowq: rgba(255, 255, 255, 0.04);
+    --trace-qual: #3e5675;
+    --trace-qual-low: #6b4440;
     --map-tick: #5c6068;
     --map-text: #8f949c;
     --map-leader: #4f535a;
@@ -120,6 +134,13 @@
   --seq-sel: rgba(245, 197, 66, 0.28);
   --seq-hit: rgba(106, 158, 224, 0.18);
   --seq-hit-line: rgba(106, 158, 224, 0.8);
+  --trace-a: #5cc36f;
+  --trace-c: #6aa1f0;
+  --trace-g: #e4e5e7;
+  --trace-t: #f0766b;
+  --trace-lowq: rgba(255, 255, 255, 0.04);
+  --trace-qual: #3e5675;
+  --trace-qual-low: #6b4440;
   --map-tick: #5c6068;
   --map-text: #8f949c;
   --map-leader: #4f535a;
@@ -1039,6 +1060,47 @@ button.tag:hover {
 }
 .seq-hit.current {
   box-shadow: inset 0 0 0 2px var(--seq-hit-line);
+}
+
+/* Chromatogram */
+.trace-scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: text;
+  user-select: none;
+}
+.trace-content {
+  position: relative;
+}
+.trace-canvas {
+  position: sticky;
+  left: 0;
+  display: block;
+}
+.trace-legend {
+  display: inline-flex;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+.trace-a {
+  color: var(--trace-a);
+}
+.trace-c {
+  color: var(--trace-c);
+}
+.trace-g {
+  color: var(--trace-g);
+}
+.trace-t {
+  color: var(--trace-t);
+}
+.zoom-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
 }
 
 /* Find bar */

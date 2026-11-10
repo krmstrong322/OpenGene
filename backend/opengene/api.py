@@ -360,6 +360,16 @@ def search(
     return asdict(result)
 
 
+@app.get("/records/{record_id}/trace")
+def get_trace(record_id: str) -> dict:
+    """The record's sequencing trace: channels A/C/G/T, a peak (sample index)
+    and Phred quality per base, and run details."""
+    record = _get(record_id)
+    if record.trace is None:
+        raise HTTPException(status_code=404, detail="this record has no sequencing trace")
+    return record.trace.model_dump()
+
+
 @app.get("/records/{record_id}/orfs")
 def orfs(record_id: str, min_aa: int = 30) -> list[dict]:
     record = _get(record_id)

@@ -223,7 +223,51 @@ def _replace_linear(record: PlasmidRecord, a: int, b: int, seq: str) -> list[Fea
         kept.append(_with_spans(f, spans))
     record.sequence = record.sequence[:a] + seq + record.sequence[b:]
     record.features = kept
+    _splice_trace(record, a, b, len(seq))
     return removed
+
+
+def _splice_trace(record: PlasmidRecord, a: int, b: int, inserted: int) -> None:
+    """Keep a trace's per-base peaks and qualities in step with replacing
+    ``[a, b)`` by ``inserted`` bases: deleted bases lose their peaks, and new
+    bases (which were never called, so get quality 0) are spaced evenly
+    between the neighbouring peaks."""
+    trace = record.trace
+    if trace is None:
+        return
+    peaks, quality = trace.peaks, trace.quality
+    last_sample = max(0, trace.n_samples - 1)
+    left = peaks[a - 1] if a > 0 else None
+    right = peaks[b] if b < len(peaks) else None
+    if len(peaks) > 1:
+        step = (peaks[-1] - peaks[0]) / (len(peaks) - 1)
+    else:
+        step = 12.0  # a typical peak spacing
+    new: list[int] = []
+    for i in range(inserted):
+        if left is not None and right is not None:
+            x = left + (right - left) * (i + 1) / (inserted + 1)
+        elif right is not None:
+            x = right - step * (inserted - i)
+        elif left is not None:
+            x = left + step * (i + 1)
+        else:
+            x = step * i
+        new.append(min(last_sample, max(0, round(x))))
+    trace.peaks = peaks[:a] + new + peaks[b:]
+    trace.quality = quality[:a] + [0] * inserted + quality[b:]
+
+
+def _flip_trace(record: PlasmidRecord) -> None:
+    """Reverse-complement a trace: the read as seen from the other strand."""
+    trace = record.trace
+    if trace is None:
+        return
+    pair = {"A": "T", "C": "G", "G": "C", "T": "A"}
+    last = trace.n_samples - 1
+    trace.samples = {b: list(reversed(trace.samples[pair[b]])) for b in "ACGT"}
+    trace.peaks = [last - p for p in reversed(trace.peaks)]
+    trace.quality = list(reversed(trace.quality))
 
 
 def _rotate_span(start: int, end: int, n: int, k: int) -> tuple[int, int]:
@@ -240,6 +284,9 @@ def _rotate_raw(record: PlasmidRecord, k: int) -> None:
     if k == 0:
         return
     record.sequence = record.sequence[k:] + record.sequence[:k]
+    if record.trace is not None:
+        # A read has ends; turning it into a rotated circle has no trace.
+        record.trace = None
     rotated: list[Feature] = []
     for f in record.features:
         if f.length(n) == n and not f.segments:  # covers the whole circle; leave it whole
@@ -499,6 +546,7 @@ def reverse_complement_record(record: PlasmidRecord) -> PlasmidRecord:
     """Reverse-complement the whole record, flipping feature coordinates."""
     n = record.length
     record.sequence = reverse_complement(record.sequence)
+    _flip_trace(record)
     flipped: list[Feature] = []
     for f in record.features:
         if f.segments:

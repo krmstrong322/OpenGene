@@ -54,7 +54,8 @@ makes them handy test files to import.
 
 ## What's implemented (Phase 1)
 
-- **File I/O** — import and export GenBank, FASTA, EMBL and SnapGene `.dna`.
+- **File I/O** — import and export GenBank, FASTA, EMBL and SnapGene `.dna`; open Sanger
+  traces (ABI `.ab1`/`.abi`, SCF v2/v3 `.scf`).
   Multi-part features (`join(...)`, e.g. exons) keep their parts, origin-spanning
   joins stay one wrapping feature, every GenBank feature key (`gene`, `exon`,
   `polyA_signal`, `regulatory` …) and repeated qualifier (several `/note`s) survives
@@ -69,6 +70,10 @@ makes them handy test files to import.
   paste (inserts or replaces through the engine), delete; the selection shows length,
   GC, Tm, molecular weight and its translation (a selected feature is translated on its
   own strand). Only on-screen lines are drawn, so 100 kb+ constructs stay responsive
+- **Chromatograms** — a trace opens as a linear read with its four channels, base calls,
+  quality bars and low-quality (<Q20) shading; zoom, peak height, click/drag to select
+  in step with the other views. Correcting calls, inserts, deletes and
+  reverse-complement keep the trace aligned (the trace flips with the read)
 - **Map images** — save the circular or linear map as SVG (fonts embedded), PNG (3×) or
   vector PDF, or print it; exports always use the light theme and leave out the
   current selection

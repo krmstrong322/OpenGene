@@ -93,6 +93,7 @@ export interface PlasmidRecord {
   updatedAt: number; // unix seconds, last saved change of any kind
   canUndo?: boolean; // server-reported: an undo step is available
   canRedo?: boolean;
+  hasTrace?: boolean; // opened from a sequencing trace (.ab1 / .scf)
 }
 
 // A saved plasmid in the library listing (no sequence).
@@ -102,8 +103,18 @@ export interface RecordSummary {
   length: number;
   isCircular: boolean;
   featureCount: number;
+  hasTrace?: boolean;
   createdAt: number; // unix seconds
   updatedAt: number; // unix seconds
+}
+
+// A Sanger chromatogram: four channels of samples, and per base of the
+// record's sequence its peak (sample index) and Phred quality.
+export interface TraceData {
+  samples: Record<"A" | "C" | "G" | "T", number[]>;
+  peaks: number[];
+  quality: number[];
+  meta: Record<string, string>;
 }
 
 export interface ORF {

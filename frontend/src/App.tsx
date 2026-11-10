@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { ChromatogramPane } from "./components/ChromatogramPane";
 import { CircularMap } from "./components/CircularMap";
 import { EditPanel } from "./components/EditPanel";
 import { ImageMenu } from "./components/ImageMenu";
@@ -241,7 +242,7 @@ export default function App() {
       <input
         ref={fileRef}
         type="file"
-        accept=".gb,.gbk,.genbank,.fasta,.fa,.fna,.embl,.dna"
+        accept=".gb,.gbk,.genbank,.fasta,.fa,.fna,.embl,.dna,.ab1,.abi,.scf"
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -263,6 +264,15 @@ export default function App() {
       ) : (
         <main className="workspace">
           <div className="main-pane">
+            {/* For a sequencing read the trace is the main view, so it leads. */}
+            {record.hasTrace && (
+              <ChromatogramPane
+                record={record}
+                selection={selection}
+                onSelect={setSelection}
+                onError={setError}
+              />
+            )}
             <section className="pane">
               <div className="pane-head">
                 <h3 className="pane-title">Map</h3>

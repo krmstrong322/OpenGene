@@ -8,12 +8,18 @@ import { LinearMap } from "./components/LinearMap";
 import { NewRecordDialog } from "./components/NewRecordDialog";
 import { RecordLibrary } from "./components/RecordLibrary";
 import { SequencePane } from "./components/SequenceViewer";
+import { Splitter } from "./components/Splitter";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
+import { basePos, boundaryLabel, selectionRange } from "./lib/coords";
+import { useLayout } from "./lib/layout";
 import { normalizeSpan, selectionLength } from "./lib/selection";
 import { useTheme } from "./lib/theme";
 import type { CutSite, Feature, FramePolicy, ORF, PlasmidRecord, Selection } from "./lib/types";
 import { TYPE_COLORS } from "./lib/types";
+
+// Narrowest workspace (px) that still fits a map and the sequence side by side.
+const SIDE_BY_SIDE_MIN = 720;
 
 export default function App() {
   const [record, setRecord] = useState<PlasmidRecord | null>(null);
@@ -36,6 +42,24 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null);
   const circularRef = useRef<HTMLDivElement>(null);
   const linearRef = useRef<HTMLDivElement>(null);
+
+  // Workspace layout: which views are open, and the maps/sequence divider.
+  // The two sit side by side once the workspace is wide enough for both.
+  const { layout, toggleView, setSplit, defaultSplit } = useLayout();
+  const views = layout.views;
+  const showMaps = views.map || views.linear;
+  const mainRef = useRef<HTMLDivElement>(null);
+  const [sideBySide, setSideBySide] = useState(true);
+  const hasRecord = !!record;
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const measure = () => setSideBySide(el.clientWidth >= SIDE_BY_SIDE_MIN);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasRecord]);
 
   useEffect(() => {
     api
@@ -236,6 +260,8 @@ export default function App() {
         onRedo={redo}
         onNew={() => setShowNew(true)}
         onImport={openFilePicker}
+        views={views}
+        onToggleView={toggleView}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -263,7 +289,11 @@ export default function App() {
         />
       ) : (
         <main className="workspace">
-          <div className="main-pane">
+          <div
+            className="main-pane"
+            ref={mainRef}
+            data-layout={sideBySide ? "columns" : "rows"}
+          >
             {/* For a sequencing read the trace is the main view, so it leads. */}
             {record.hasTrace && (
               <ChromatogramPane
@@ -273,117 +303,137 @@ export default function App() {
                 onError={setError}
               />
             )}
-            <section className="pane">
-              <div className="pane-head">
-                <h3 className="pane-title">Map</h3>
-                <div className="map-controls">
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={showPrimers}
-                      onChange={(e) => setShowPrimers(e.target.checked)}
-                    />
-                    Primers <span className="muted num">{record.primers.length}</span>
-                  </label>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={showOrfs}
-                      onChange={(e) => setShowOrfs(e.target.checked)}
-                    />
-                    ORFs {showOrfs && <span className="muted num">{orfs.length}</span>}
-                  </label>
-                  {showOrfs && (
-                    <label className="check">
-                      min aa
-                      <input
-                        type="number"
-                        className="input narrow"
-                        value={minOrfAa}
-                        min={1}
-                        onChange={(e) => setMinOrfAa(Math.max(1, Number(e.target.value)))}
-                      />
-                    </label>
+            {/* Maps and sequence share the workspace: side by side when there's
+                room, stacked otherwise, with a draggable divider between them. */}
+            <div className="split" style={{ "--split": layout.split } as React.CSSProperties}>
+              {showMaps && (
+                <div className={views.sequence ? "split-maps" : "split-maps solo"}>
+                  {views.map && (
+                    <section className="pane map-pane">
+                      <div className="pane-head">
+                        <h3 className="pane-title">Map</h3>
+                        <div className="map-controls">
+                          <label className="check">
+                            <input
+                              type="checkbox"
+                              checked={showPrimers}
+                              onChange={(e) => setShowPrimers(e.target.checked)}
+                            />
+                            Primers <span className="muted num">{record.primers.length}</span>
+                          </label>
+                          <label className="check">
+                            <input
+                              type="checkbox"
+                              checked={showOrfs}
+                              onChange={(e) => setShowOrfs(e.target.checked)}
+                            />
+                            ORFs {showOrfs && <span className="muted num">{orfs.length}</span>}
+                          </label>
+                          {showOrfs && (
+                            <label className="check">
+                              min aa
+                              <input
+                                type="number"
+                                className="input narrow"
+                                value={minOrfAa}
+                                min={1}
+                                onChange={(e) => setMinOrfAa(Math.max(1, Number(e.target.value)))}
+                              />
+                            </label>
+                          )}
+                        </div>
+                        <span className="spacer" />
+                        <ImageMenu
+                          getSvg={() => circularRef.current?.querySelector("svg.map-svg") ?? null}
+                          fileBase={`${record.name} map`}
+                          title={record.name}
+                          subtitle={`${record.length.toLocaleString()} bp · ${record.isCircular ? "circular" : "linear"}`}
+                          onError={setError}
+                        />
+                      </div>
+                      <div className="pane-body map-fit" ref={circularRef}>
+                        <CircularMap
+                          record={record}
+                          cutSites={cutSites}
+                          selection={selection}
+                          onSelectFeature={selectFeature}
+                          onHover={setHoveredId}
+                          hoveredId={hoveredId}
+                          primers={showPrimers ? displayPrimers : []}
+                          orfs={showOrfs ? orfs : []}
+                          onSelectRange={selectRange}
+                        />
+                      </div>
+                      {(legend.length > 0 || cutSites.length > 0) && (
+                        <div className="legend">
+                          {legend.map((l) => (
+                            <span key={l.type}>
+                              <i className="swatch" style={{ background: l.color }} />
+                              {l.type}
+                            </span>
+                          ))}
+                          {cutSites.length > 0 && (
+                            <span>
+                              <i className="cut-mark" /> cut site
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </section>
                   )}
-                </div>
-                <span className="spacer" />
-                <ImageMenu
-                  getSvg={() => circularRef.current?.querySelector("svg.map-svg") ?? null}
-                  fileBase={`${record.name} map`}
-                  title={record.name}
-                  subtitle={`${record.length.toLocaleString()} bp · ${record.isCircular ? "circular" : "linear"}`}
-                  onError={setError}
-                />
-              </div>
-              <div className="pane-body" ref={circularRef}>
-                <CircularMap
-                  record={record}
-                  cutSites={cutSites}
-                  selection={selection}
-                  onSelectFeature={selectFeature}
-                  onHover={setHoveredId}
-                  hoveredId={hoveredId}
-                  primers={showPrimers ? displayPrimers : []}
-                  orfs={showOrfs ? orfs : []}
-                  onSelectRange={selectRange}
-                />
-              </div>
-              {(legend.length > 0 || cutSites.length > 0) && (
-                <div className="legend">
-                  {legend.map((l) => (
-                    <span key={l.type}>
-                      <i className="swatch" style={{ background: l.color }} />
-                      {l.type}
-                    </span>
-                  ))}
-                  {cutSites.length > 0 && (
-                    <span>
-                      <i className="cut-mark" /> cut site
-                    </span>
+                  {views.linear && (
+                    <section className="pane linear-pane">
+                      <div className="pane-head">
+                        <h3 className="pane-title">Linear view</h3>
+                        <span className="spacer" />
+                        <ImageMenu
+                          getSvg={() => linearRef.current?.querySelector("svg.map-svg") ?? null}
+                          fileBase={`${record.name} linear map`}
+                          title={record.name}
+                          subtitle={`${record.length.toLocaleString()} bp · ${record.isCircular ? "circular" : "linear"} · linear view`}
+                          onError={setError}
+                        />
+                      </div>
+                      <div className="pane-body" ref={linearRef}>
+                        <LinearMap
+                          record={record}
+                          cutSites={cutSites}
+                          selection={selection}
+                          onSelectFeature={selectFeature}
+                          onHover={setHoveredId}
+                          hoveredId={hoveredId}
+                          primers={showPrimers ? displayPrimers : []}
+                          orfs={showOrfs ? orfs : []}
+                          onSelectRange={selectRange}
+                        />
+                      </div>
+                    </section>
                   )}
                 </div>
               )}
-            </section>
-
-            <section className="pane">
-              <div className="pane-head">
-                <h3 className="pane-title">Linear view</h3>
-                <span className="spacer" />
-                <ImageMenu
-                  getSvg={() => linearRef.current?.querySelector("svg.map-svg") ?? null}
-                  fileBase={`${record.name} linear map`}
-                  title={record.name}
-                  subtitle={`${record.length.toLocaleString()} bp · ${record.isCircular ? "circular" : "linear"} · linear view`}
-                  onError={setError}
+              {showMaps && views.sequence && (
+                <Splitter
+                  vertical={sideBySide}
+                  value={layout.split}
+                  onChange={setSplit}
+                  onReset={() => setSplit(defaultSplit)}
                 />
-              </div>
-              <div className="pane-body" ref={linearRef}>
-                <LinearMap
-                  record={record}
-                  cutSites={cutSites}
-                  selection={selection}
-                  onSelectFeature={selectFeature}
-                  onHover={setHoveredId}
-                  hoveredId={hoveredId}
-                  primers={showPrimers ? displayPrimers : []}
-                  orfs={showOrfs ? orfs : []}
-                  onSelectRange={selectRange}
-                />
-              </div>
-            </section>
-
-            <SequencePane
-              record={record}
-              selection={selection}
-              onSelect={setSelection}
-              hoveredId={hoveredId}
-              onHover={setHoveredId}
-              onSelectFeature={selectFeature}
-              cutSites={cutSites}
-              framePolicy={framePolicy}
-              onRecordChange={setRecord}
-              onError={setError}
-            />
+              )}
+              {views.sequence && (
+                  <SequencePane
+                    record={record}
+                    selection={selection}
+                    onSelect={setSelection}
+                    hoveredId={hoveredId}
+                    onHover={setHoveredId}
+                    onSelectFeature={selectFeature}
+                    cutSites={cutSites}
+                    framePolicy={framePolicy}
+                    onRecordChange={setRecord}
+                    onError={setError}
+                  />
+              )}
+            </div>
           </div>
 
           <EditPanel
@@ -466,7 +516,7 @@ function StatusBar({
           {selection && (
             <span className="item sel">
               <i className="swatch" />
-              {describeSelection(selection, record.length)}
+              {describeSelection(selection, record.length, record.isCircular)}
             </span>
           )}
         </>
@@ -475,11 +525,9 @@ function StatusBar({
   );
 }
 
-function describeSelection(sel: Selection, length: number): string {
+function describeSelection(sel: Selection, length: number, circular: boolean): string {
   const bp = selectionLength(sel, length);
-  if (bp === 0) return `Cursor ${sel.start}`;
-  if (bp === 1) return `Position ${Math.min(sel.start, sel.end)}`;
-  const lo = sel.wrap ? sel.start : Math.min(sel.start, sel.end);
-  const hi = sel.wrap ? sel.end : Math.max(sel.start, sel.end);
-  return `${lo}–${hi}${sel.wrap ? " (wraps origin)" : ""} · ${bp.toLocaleString()} bp`;
+  if (bp === 0) return `Cursor ${boundaryLabel(sel.start, length, circular)}`;
+  if (bp === 1) return `Base ${basePos(Math.min(sel.start, sel.end))}`;
+  return `${selectionRange(sel, length)} · ${bp.toLocaleString()} bp`;
 }

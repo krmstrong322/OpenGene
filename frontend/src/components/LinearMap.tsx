@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { METHYL_LABELS, TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
+import { boundaryLabel, rangeLabel, tickLabel } from "../lib/coords";
+import { useSize } from "../lib/useSize";
 import { selectionSegments } from "../lib/selection";
 import { spanSegments, stackSpans } from "../lib/geometry";
 
@@ -42,13 +44,13 @@ function assignLanes(features: Feature[], length: number): Map<string, number> {
   return out;
 }
 
-function cutTitle(c: CutSite): string {
+function cutTitle(c: CutSite, length: number, circular: boolean): string {
   const ends =
     c.overhang_type === "blunt" ? "blunt ends" : `${c.overhang_type} overhang ${c.overhang}`;
   const meth = c.methylation.length
     ? ` · overlaps ${c.methylation.map((m) => METHYL_LABELS[m]).join(", ")}`
     : "";
-  return `${c.enzyme} · cuts at ${c.position} · ${ends}${meth}`;
+  return `${c.enzyme} · cuts ${boundaryLabel(c.position, length, circular)} · ${ends}${meth}`;
 }
 
 export function LinearMap({
@@ -63,7 +65,10 @@ export function LinearMap({
   onSelectRange,
 }: Props) {
   const length = record.length || 1;
-  const width = 900;
+  // Draw at the pane's own width (1 unit = 1 px) so text stays the same size
+  // however the workspace is divided; 900 until the first measurement.
+  const [svgRef, size] = useSize<SVGSVGElement>();
+  const width = Math.max(420, Math.round(size?.width || 900));
   const usable = width - PAD * 2;
   const x = (base: number) => PAD + (base / length) * usable;
   const laneOf = useMemo(() => assignLanes(record.features, length), [record.features, length]);
@@ -109,6 +114,7 @@ export function LinearMap({
 
   return (
     <svg
+      ref={svgRef}
       className="map-svg"
       viewBox={`0 0 ${width} ${Math.max(H, totalH)}`}
       width="100%"
@@ -136,7 +142,7 @@ export function LinearMap({
         <g key={`t-${b}`}>
           <line className="tick" x1={x(b)} y1={TRACK_Y - 2} x2={x(b)} y2={TRACK_Y - 7} />
           <text className="tick-label" x={x(b)} y={TRACK_Y - 11} fontSize={9} textAnchor="middle">
-            {b}
+            {tickLabel(b)}
           </text>
         </g>
       ))}
@@ -167,7 +173,7 @@ export function LinearMap({
           className={c.methylation.some((m) => m === "dam" || m === "dcm") ? "cut methyl" : "cut"}
           strokeWidth={1}
         >
-          <title>{cutTitle(c)}</title>
+          <title>{cutTitle(c, length, record.isCircular)}</title>
         </line>
       ))}
       {cutSites.map((c, i) => (
@@ -259,7 +265,7 @@ export function LinearMap({
               );
             })()}
             <title>
-              {f.name} ({featureCoords(f)}, {f.strand === 1 ? "+" : "−"})
+              {f.name} ({featureCoords(f, length)}, {f.strand === 1 ? "+" : "−"})
             </title>
           </g>
         );
@@ -320,7 +326,7 @@ export function LinearMap({
               />
             ))}
             <title>
-              ORF {o.start}–{o.end} ({o.strand === 1 ? "+" : "−"}) · {o.protein.length} aa
+              ORF {rangeLabel(o.start, o.end, length)} ({o.strand === 1 ? "+" : "−"}) · {o.protein.length} aa
             </title>
           </g>
         );

@@ -617,6 +617,44 @@ button.tag:disabled {
   gap: 4px;
 }
 
+/* Show/hide switches for the workspace views */
+.view-toggles {
+  display: inline-flex;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.view-toggle + .view-toggle {
+  border-left: 1px solid var(--line-strong);
+}
+.view-toggle:hover:not(:disabled) {
+  background: var(--hover);
+}
+.view-toggle.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.view-toggle:disabled {
+  cursor: default;
+}
+.view-toggle:focus-visible {
+  outline-offset: -2px;
+}
+
 /* Dropdown menu */
 .menu-wrap {
   position: relative;
@@ -903,10 +941,120 @@ button.tag:disabled {
   grid-template-columns: minmax(0, 1fr) 340px;
   min-height: 0;
 }
+/* The workspace fills the window and never scrolls as a whole: each view
+   scrolls inside its own pane, so the map and the sequence stay on screen
+   together. */
 .main-pane {
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--surface);
   min-width: 0;
+  min-height: 0;
+}
+.main-pane > .pane {
+  flex: none;
+}
+.split {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.main-pane[data-layout="rows"] .split {
+  flex-direction: column;
+}
+.split-maps {
+  flex: 0 0 calc(var(--split) * 100%);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* Stacked above the sequence there's less height to share, so the maps
+   scroll within their half rather than shrinking to nothing. */
+.main-pane[data-layout="rows"] .split-maps {
+  overflow-y: auto;
+}
+.main-pane[data-layout="rows"] .map-pane {
+  min-height: 400px;
+}
+.main-pane[data-layout="rows"] .linear-pane {
+  max-height: none;
+  overflow-y: visible;
+}
+.split-maps.solo {
+  flex: 1;
+}
+.map-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.map-fit {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.map-fit > .map-svg {
+  width: 100%;
+  height: 100%;
+}
+.linear-pane {
+  flex: none;
+  max-height: 55%;
+  overflow-y: auto;
+}
+.linear-pane:first-child {
+  flex: 1;
+  max-height: none;
+}
+.split-maps > .pane:last-child {
+  border-bottom: 0;
+}
+.seq-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-bottom: 0;
+}
+
+/* Divider between the maps and the sequence. The visible hairline sits in a
+   wider grab area. */
+.splitter {
+  position: relative;
+  flex: none;
+  z-index: 3;
+  background: var(--line);
+  touch-action: none;
+  outline: none;
+}
+.main-pane[data-layout="columns"] .splitter {
+  width: 1px;
+  cursor: col-resize;
+}
+.main-pane[data-layout="rows"] .splitter {
+  height: 1px;
+  cursor: row-resize;
+}
+.splitter::after {
+  content: "";
+  position: absolute;
+}
+.main-pane[data-layout="columns"] .splitter::after {
+  inset: 0 -4px;
+}
+.main-pane[data-layout="rows"] .splitter::after {
+  inset: -4px 0;
+}
+.splitter:hover,
+.splitter:active,
+.splitter:focus-visible {
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .pane {
@@ -919,9 +1067,10 @@ button.tag:disabled {
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 14px;
-  height: var(--pane-h);
-  padding: 0 12px;
+  flex-wrap: wrap;
+  gap: 0 14px;
+  min-height: var(--pane-h);
+  padding: 3px 12px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
 }
@@ -1069,10 +1218,9 @@ button.tag:disabled {
 }
 .seq-viewer {
   position: relative;
-  height: 460px;
-  min-height: 160px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
-  resize: vertical;
   font-family: var(--font-mono);
   font-size: 12px;
   outline: none;
@@ -1544,8 +1692,38 @@ button.tag:disabled {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* Small screens: one column that scrolls as a page, each view at its
+     natural height. */
   .main-pane {
+    display: block;
     overflow: visible;
+  }
+  .split,
+  .split-maps,
+  .map-pane,
+  .map-fit {
+    display: block;
+  }
+  .splitter {
+    display: none;
+  }
+  .map-fit > .map-svg {
+    height: auto;
+    max-height: 62vh;
+  }
+  .linear-pane {
+    max-height: none;
+  }
+  .split-maps > .pane:last-child,
+  .seq-pane {
+    border-bottom: 1px solid var(--line);
+  }
+  .seq-viewer {
+    flex: none;
+    height: 460px;
+  }
+  .map-pane {
+    min-height: 0;
   }
   .panel {
     height: auto;

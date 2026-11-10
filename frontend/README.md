@@ -33,23 +33,35 @@ construct that exercises the maps, annotation, and sequence view.
 ## Layout
 
 ```
-Title bar     Library / record name · undo/redo · new / import / export ▾ · theme
-┌───────────────────────────┬──────────────────────┐
-│ Map (SVG)                 │  Inspector (tabs):    │
-│   overlay toggles, legend │   • Edit   insert / delete / mutate / revcomp
-│ Linear view (SVG)         │   • Features  auto-annotate, list, add
-│ Sequence viewer           │   • ORFs   6-frame detection
-│                           │   • Enzymes  cut-site map & digest
-│                           │   • Primers  design pair / analyze oligo
-└───────────────────────────┴──────────────────────┘
+Title bar     Library / record name · view toggles (Map | Linear | Sequence) · undo/redo · new / import / export ▾ · theme
+┌──────────────────┬──────────────────┬──────────────────────┐
+│ Map (SVG)        ║ Sequence viewer  │  Inspector (tabs):    │
+│   overlays,      ║                  │   • Edit   insert / delete / mutate / revcomp
+│   legend         ║                  │   • Features  auto-annotate, list, add
+│──────────────────║                  │   • ORFs   6-frame detection
+│ Linear view      ║                  │   • Enzymes  cut-site map & digest
+│                  ║                  │   • Primers  design pair / analyze oligo
+└──────────────────┴──────────────────┴──────────────────────┘
 Status bar    engine status · length · features · GC% · current selection
 ```
 
+The workspace never scrolls as a whole: the maps and the sequence sit side by
+side (stacked when the window is narrow), each scrolling inside its own pane,
+with a draggable divider (`║`) between them — arrow keys nudge it, double-click
+resets it. The title-bar toggles show or hide each view. The divider position
+and open views are remembered in `localStorage` (`lib/layout.ts`). Below 860 px
+the app falls back to a single scrolling column.
+
 All three views share one `Selection`, so hovering or selecting a feature in any
-view highlights it in the others. The maps render directional arrows, stacked
-lanes/rings for overlapping features, labelled features with leader lines,
-restriction cut sites, and origin-wrapping features (e.g. a terminator shown as
-`871–0`).
+view highlights it in the others and scrolls the sequence to it. The maps render
+directional arrows, stacked lanes/rings for overlapping features, labelled
+features with leader lines, restriction cut sites, and origin-wrapping features.
+
+**Coordinates.** State and the API use 0-based, half-open spans; everything the
+user reads or types is 1-based and inclusive, GenBank-style (a feature stored as
+`[182, 211)` shows as `183–211`; a cursor shows the two bases it sits between,
+`182 | 183`). All conversion goes through `lib/coords.ts` — don't format a
+position by hand.
 
 ## Design system
 
@@ -78,4 +90,7 @@ desktop app), and icons come from `lucide-react`.
 | `components/Toolbar.tsx` | Title bar: breadcrumb, undo/redo, import/export, theme |
 | `components/RecordLibrary.tsx` | Start screen: sortable, filterable table of saved plasmids |
 | `components/NewRecordDialog.tsx` | Modal for creating a record from pasted DNA |
+| `components/Splitter.tsx` | Draggable, keyboard-operable divider between maps and sequence |
+| `lib/coords.ts` | 0-based internal spans ↔ 1-based positions shown to the user |
+| `lib/layout.ts` | Open views + divider position (persisted) |
 | `lib/theme.ts` | Light / dark / system theme preference |

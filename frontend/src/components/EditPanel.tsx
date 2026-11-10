@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { selectionLength } from "../lib/selection";
+import { basePos, boundaryLabel, fromSpan, rangeLabel, selectionRange, toSpan } from "../lib/coords";
 import { COMMON_FEATURE_TYPES, METHYL_LABELS, TYPE_COLORS, featureCoords } from "../lib/types";
 import type {
   CutSite,
@@ -156,7 +157,7 @@ function EditTab({ record, selection, onRecordChange, onError, framePolicy, setF
         <h4 className="section-title">Insert</h4>
         <div className="row">
           <label className="field" style={{ flex: "0 0 96px" }}>
-            <span>Position</span>
+            <span>After base</span>
             <input
               className="input"
               type="number"
@@ -183,7 +184,7 @@ function EditTab({ record, selection, onRecordChange, onError, framePolicy, setF
             disabled={!insertSeq}
             onClick={() => run(() => api.insert(record.id, insertPos, insertSeq, framePolicy))}
           >
-            Insert at {insertPos}
+            {insertPos <= 0 ? "Insert at start" : `Insert after base ${insertPos.toLocaleString()}`}
           </button>
           {selection && (
             <button
@@ -191,7 +192,9 @@ function EditTab({ record, selection, onRecordChange, onError, framePolicy, setF
               disabled={!insertSeq}
               onClick={() => run(() => api.insert(record.id, spanStart, insertSeq, framePolicy))}
             >
-              {hasRange ? "At selection start" : `At cursor (${spanStart})`}
+              {hasRange
+                ? "At selection start"
+                : `At cursor (${boundaryLabel(spanStart, record.length, record.isCircular)})`}
             </button>
           )}
         </div>
@@ -206,8 +209,7 @@ function EditTab({ record, selection, onRecordChange, onError, framePolicy, setF
           <>
             <span className="sel-chip">
               <i className="swatch" />
-              {spanStart}–{spanEnd}
-              {wrapping ? " (wraps origin)" : ""}
+              {selection ? selectionRange(selection, record.length) : ""}
             </span>
             <div className="row">
               <button
@@ -239,7 +241,7 @@ function EditTab({ record, selection, onRecordChange, onError, framePolicy, setF
           <div className="row" style={{ alignItems: "center" }}>
             <span className="sel-chip">
               <i className="swatch" />
-              base {selection.start} ({record.sequence[selection.start]}) →
+              base {basePos(selection.start)} ({record.sequence[selection.start]}) →
             </span>
             <select
               className="select"
@@ -278,8 +280,18 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
   const [annotating, setAnnotating] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("misc_feature");
-  const [selStart, setSelStart] = useState(0);
-  const [selEnd, setSelEnd] = useState(0);
+  // The Start/End fields hold what the user reads: 1-based, inclusive. They
+  // follow the selection, so "select a range, name it, add" needs no typing.
+  const [selStart, setSelStart] = useState(1);
+  const [selEnd, setSelEnd] = useState(1);
+  useEffect(() => {
+    if (!selection || selection.start === selection.end) return;
+    const lo = selection.wrap ? selection.start : Math.min(selection.start, selection.end);
+    const hi = selection.wrap ? selection.end : Math.max(selection.start, selection.end);
+    const ui = fromSpan(lo, hi, record.length);
+    setSelStart(ui.first);
+    setSelEnd(ui.last);
+  }, [selection, record.length]);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const annotate = async () => {
@@ -299,8 +311,7 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
       const r = await api.addFeature(record.id, {
         name,
         type: type as any,
-        start: selStart,
-        end: selEnd,
+        ...toSpan(selStart, selEnd),
         strand: 1,
       });
       onRecordChange(r);
@@ -349,9 +360,9 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
                 )}
                 <span
                   className="feature-coords"
-                  title={f.segments && f.segments.length > 1 ? `${f.segments.length} parts: ${featureCoords(f)}` : undefined}
+                  title={f.segments && f.segments.length > 1 ? `${f.segments.length} parts: ${featureCoords(f, record.length)}` : undefined}
                 >
-                  {f.start}–{f.end} {f.strand === 1 ? "+" : "−"}
+                  {rangeLabel(f.start, f.end, record.length)} {f.strand === 1 ? "+" : "−"}
                   {f.segments && f.segments.length > 1 && ` · ${f.segments.length} parts`}
                 </span>
                 <span className="actions">
@@ -424,6 +435,8 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
               className="input"
               type="number"
               value={selStart}
+              min={1}
+              max={record.length}
               onChange={(e) => setSelStart(Number(e.target.value))}
             />
           </label>
@@ -433,6 +446,8 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
               className="input"
               type="number"
               value={selEnd}
+              min={1}
+              max={record.length}
               onChange={(e) => setSelEnd(Number(e.target.value))}
             />
           </label>
@@ -441,17 +456,6 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
           <button className="btn" disabled={!name} onClick={addManual}>
             Add feature
           </button>
-          {selection && selection.start !== selection.end && (
-            <button
-              className="btn btn-ghost"
-              onClick={() => {
-                setSelStart(selection.wrap ? selection.start : Math.min(selection.start, selection.end));
-                setSelEnd(selection.wrap ? selection.end : Math.max(selection.start, selection.end));
-              }}
-            >
-              Use selection
-            </button>
-          )}
         </div>
       </section>
     </div>
@@ -474,8 +478,10 @@ function FeatureEditor({
   const [name, setName] = useState(feature.name);
   const [type, setType] = useState<FeatureType>(feature.type);
   const [strand, setStrand] = useState<number>(feature.strand);
-  const [start, setStart] = useState(feature.start);
-  const [end, setEnd] = useState(feature.end);
+  // Shown and typed 1-based, inclusive; converted back on save.
+  const initial = fromSpan(feature.start, feature.end, record.length);
+  const [start, setStart] = useState(initial.first);
+  const [end, setEnd] = useState(initial.last);
   // The color input needs a concrete value, so fall back to the feature's
   // effective (type) color for display. But a feature with no explicit color
   // takes its color from its type on the maps, so only send `color` when the
@@ -495,7 +501,7 @@ function FeatureEditor({
         name,
         type,
         strand: strand as 1 | -1,
-        ...(multiPart ? {} : { start, end }),
+        ...(multiPart ? {} : toSpan(start, end)),
         ...(colorTouched ? { color } : {}),
       });
       onRecordChange(updated);
@@ -537,7 +543,7 @@ function FeatureEditor({
             className="input"
             type="number"
             value={start}
-            min={0}
+            min={1}
             max={record.length}
             disabled={multiPart}
             onChange={(e) => setStart(Number(e.target.value))}
@@ -549,7 +555,7 @@ function FeatureEditor({
             className="input"
             type="number"
             value={end}
-            min={0}
+            min={1}
             max={record.length}
             disabled={multiPart}
             onChange={(e) => setEnd(Number(e.target.value))}
@@ -570,7 +576,7 @@ function FeatureEditor({
       </div>
       {multiPart && (
         <p className="hint">
-          {feature.segments!.length} parts: {featureCoords(feature)}. Edits to the sequence move each
+          {feature.segments!.length} parts: {featureCoords(feature, record.length)}. Edits to the sequence move each
           part; its coordinates can't be set as one span.
         </p>
       )}
@@ -630,7 +636,7 @@ function OrfsTab({ record, onError }: { record: PlasmidRecord; onError: (m: stri
           <li key={i}>
             <div className="list-row">
               <span className="grow mono">
-                {o.start}–{o.end}
+                {rangeLabel(o.start, o.end, record.length)}
               </span>
               <span className="list-sub">
                 {o.strand === 1 ? "+" : "−"} strand · frame {o.frame}
@@ -935,7 +941,7 @@ function PrimersTab({
         <h4 className="section-title">Design a pair over the selection</h4>
         {selHi > selLo ? (
           <button className="btn btn-primary" onClick={design}>
-            Design primers for {selLo}–{selHi}
+            Design primers for {rangeLabel(selLo, selHi, record.length)}
           </button>
         ) : (
           <p className="hint">Select a target region first.

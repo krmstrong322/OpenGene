@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { METHYL_LABELS, TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
+import { boundaryLabel, rangeLabel, tickLabel } from "../lib/coords";
+import { useSize } from "../lib/useSize";
 import {
   arcPath,
   baseToAngle,
@@ -43,6 +45,7 @@ const R_ORF_MIN = 30;
 const R_LABEL = R_BACKBONE + 66;
 const LABEL_GAP = 15; // min vertical spacing between labels on one side
 const LABEL_MAX = 24; // characters before a label is truncated
+const TEXT_BOOST_MAX = 1.45;
 const MAX_LABELS = 64; // above this many features, only the active one is labelled
 
 // Outer radius of feature ring `ring` (0 = centred on the backbone).
@@ -89,6 +92,12 @@ export function CircularMap({
   onSelectRange,
 }: Props) {
   const length = record.length || 1;
+  // The drawing scales to fit its pane. When the pane is small, text is
+  // enlarged (up to TEXT_BOOST_MAX) to stay readable, and labels are spaced
+  // and truncated to match.
+  const [svgRef, size] = useSize<SVGSVGElement>();
+  const drawn = size ? Math.min(size.width / W, size.height / H) : 1;
+  const k = drawn > 0 ? Math.min(TEXT_BOOST_MAX, Math.max(1, 1 / drawn)) : 1;
   const ringOf = useMemo(
     () => assignRings(record.features, length),
     [record.features, length],
@@ -133,11 +142,11 @@ export function CircularMap({
   // Feature and cut-site labels share one layout, so neither can overlap the other.
   const labels = useMemo(
     () =>
-      layoutLabels([
+      layoutLabels(LABEL_GAP * k, [
         ...labelled.map((f) => ({
           key: f.id,
           feature: f,
-          text: truncate(f.name, LABEL_MAX),
+          text: truncate(f.name, Math.floor(LABEL_MAX / k)),
           angle: baseToAngle(midBase(f, length), length),
           anchorR: R_MARK,
         })),
@@ -148,15 +157,16 @@ export function CircularMap({
           anchorR: R_MARK + 11,
         })),
       ]),
-    [labelled, cutSites, length],
+    [labelled, cutSites, length, k],
   );
 
   return (
     <svg
+      ref={svgRef}
       className="map-svg"
       viewBox={`0 0 ${W} ${H}`}
       width="100%"
-      style={{ maxHeight: "62vh", userSelect: "none" }}
+      style={{ userSelect: "none" }}
       role="img"
       aria-label={`Circular map of ${record.name}`}
     >
@@ -190,11 +200,11 @@ export function CircularMap({
               className="tick-label"
               x={t.labelPoint.x}
               y={t.labelPoint.y}
-              fontSize={9}
+              fontSize={9 * k}
               textAnchor="middle"
               dominantBaseline="middle"
             >
-              {b}
+              {tickLabel(b)}
             </text>
           </g>
         );
@@ -230,7 +240,7 @@ export function CircularMap({
             onClick={() => onSelectRange?.({ start: o.start, end: o.end })}
           >
             <title>
-              ORF {o.start}–{o.end} ({o.strand === 1 ? "+" : "−"}) · {o.protein.length} aa
+              ORF {rangeLabel(o.start, o.end, length)} ({o.strand === 1 ? "+" : "−"}) · {o.protein.length} aa
             </title>
           </path>
         );
@@ -323,7 +333,7 @@ export function CircularMap({
             y2={t.to.y}
             strokeWidth={1.5}
           >
-            <title>{cutTitle(c)}</title>
+            <title>{cutTitle(c, length, record.isCircular)}</title>
           </line>
         );
       })}
@@ -349,7 +359,7 @@ export function CircularMap({
             }
             x={l.x}
             y={l.y}
-            fontSize={f ? 11 : 10}
+            fontSize={(f ? 11 : 10) * k}
             textAnchor={l.side === "right" ? "start" : "end"}
             dominantBaseline="middle"
           >
@@ -379,10 +389,10 @@ export function CircularMap({
       })}
 
       {/* center label */}
-      <text className="center-name" x={CX} y={CY - 4} fontSize={14} textAnchor="middle">
+      <text className="center-name" x={CX} y={CY - 4} fontSize={14 * k} textAnchor="middle">
         {truncate(record.name, 30)}
       </text>
-      <text className="center-sub" x={CX} y={CY + 15} fontSize={11.5} textAnchor="middle">
+      <text className="center-sub" x={CX} y={CY + 15 * k} fontSize={11.5 * k} textAnchor="middle">
         {length.toLocaleString()} bp
       </text>
     </svg>
@@ -422,7 +432,7 @@ interface PlacedLabel extends LabelItem {
 // Place every label on an outer ring. Labels are split by side of the map,
 // sorted top-to-bottom, and pushed apart so none overlap; each keeps a leader
 // line back to its anchor on the ring.
-function layoutLabels(labelItems: LabelItem[]): PlacedLabel[] {
+function layoutLabels(gap: number, labelItems: LabelItem[]): PlacedLabel[] {
   const items = labelItems.map((item) => {
     const natural = polar(CX, CY, R_LABEL, item.angle);
     return {
@@ -439,13 +449,13 @@ function layoutLabels(labelItems: LabelItem[]): PlacedLabel[] {
     const group = items.filter((i) => i.side === side).sort((a, b) => a.y - b.y);
     // forward pass: push down to keep spacing
     for (let i = 1; i < group.length; i++) {
-      group[i].y = Math.max(group[i].y, group[i - 1].y + LABEL_GAP);
+      group[i].y = Math.max(group[i].y, group[i - 1].y + gap);
     }
     // if the stack overflows the bottom, pull it back up
     const overflow = group.length ? group[group.length - 1].y - bottom : 0;
     if (overflow > 0) {
       for (let i = group.length - 1; i >= 0; i--) {
-        const limit = i === group.length - 1 ? bottom : group[i + 1].y - LABEL_GAP;
+        const limit = i === group.length - 1 ? bottom : group[i + 1].y - gap;
         group[i].y = Math.min(group[i].y, limit);
       }
     }
@@ -475,13 +485,13 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-function cutTitle(c: CutSite): string {
+function cutTitle(c: CutSite, length: number, circular: boolean): string {
   const ends =
     c.overhang_type === "blunt" ? "blunt ends" : `${c.overhang_type} overhang ${c.overhang}`;
   const meth = c.methylation.length
     ? ` · overlaps ${c.methylation.map((m) => METHYL_LABELS[m]).join(", ")}`
     : "";
-  return `${c.enzyme} · cuts at ${c.position} · ${ends}${meth}`;
+  return `${c.enzyme} · cuts ${boundaryLabel(c.position, length, circular)} · ${ends}${meth}`;
 }
 
 function labelCoords(f: Feature, length: number): string {
@@ -489,5 +499,5 @@ function labelCoords(f: Feature, length: number): string {
     (sum, [s, e]) => sum + (e >= s ? e - s : length - s + e),
     0,
   );
-  return `${featureCoords(f)}, ${bases}`;
+  return `${featureCoords(f, length)}, ${bases.toLocaleString()}`;
 }

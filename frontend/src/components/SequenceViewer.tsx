@@ -12,6 +12,7 @@ import {
 import { Copy, Search } from "lucide-react";
 import { api } from "../lib/api";
 import { FindBar } from "./FindBar";
+import { boundaryLabel, selectionRange } from "../lib/coords";
 import { selectionSegments } from "../lib/selection";
 import { cdsTranslations, complement, reverseComplement, type CdsTranslation } from "../lib/translate";
 import type {
@@ -305,7 +306,7 @@ export function SequencePane(props: Props) {
   }, [openFind]);
 
   return (
-    <section className="pane">
+    <section className="pane seq-pane">
       <div className="pane-head">
         <h3 className="pane-title">Sequence</h3>
         <div className="map-controls">
@@ -392,14 +393,17 @@ function SelectionBar({ record, selection }: { record: PlasmidRecord; selection:
     );
   }
   if (!hasRange) {
-    return <div className="seq-info">Cursor at {selection.start.toLocaleString()}</div>;
+    return (
+      <div className="seq-info">
+        Cursor {boundaryLabel(selection.start, record.length, record.isCircular)}
+      </div>
+    );
   }
   const len = segs.reduce((s, [a, b]) => s + b - a, 0);
   return (
     <div className="seq-info">
       <span className="num">
-        {start.toLocaleString()}–{end.toLocaleString()}
-        {selection.wrap ? " (wraps origin)" : ""}
+        {selectionRange(selection, record.length)}
       </span>
       <span>
         <b className="num">{len.toLocaleString()}</b> bp

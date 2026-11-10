@@ -1,3 +1,4 @@
+import { rangeLabel } from "./coords";
 // Mirrors the backend Pydantic models (camelCase on the wire).
 
 export type Strand = 1 | -1;
@@ -243,9 +244,10 @@ export function featureSpans(f: Feature): [number, number][] {
     : [[f.start, f.end]];
 }
 
-// "100–200, 400–450" for a multi-part feature, "100–450" otherwise.
-export function featureCoords(f: Feature): string {
+// "101–200, 401–450" for a multi-part feature, "101–450" otherwise (1-based,
+// inclusive — see lib/coords.ts).
+export function featureCoords(f: Feature, length: number): string {
   return featureSpans(f)
-    .map(([s, e]) => `${s}–${e}`)
+    .map(([s, e]) => rangeLabel(s, e, length))
     .join(", ");
 }

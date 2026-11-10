@@ -1,7 +1,10 @@
 import {
+  AlignLeft,
   Check,
   ChevronDown,
+  Circle,
   Download,
+  Minus,
   Monitor,
   Moon,
   Plus,
@@ -12,6 +15,7 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import { Menu } from "./Menu";
+import type { ViewId } from "../lib/layout";
 import type { ThemePref } from "../lib/theme";
 import type { PlasmidRecord } from "../lib/types";
 import logoUrl from "../assets/logo.svg";
@@ -23,6 +27,8 @@ interface Props {
   onRedo: () => void;
   onNew: () => void;
   onImport: () => void;
+  views: Record<ViewId, boolean>;
+  onToggleView: (id: ViewId) => void;
   theme: ThemePref;
   onThemeChange: (t: ThemePref) => void;
 }
@@ -35,6 +41,12 @@ const EXPORT_FORMATS: [string, string, string][] = [
   ["embl", "EMBL", "embl"],
 ];
 
+const VIEWS: { id: ViewId; label: string; Icon: typeof Circle }[] = [
+  { id: "map", label: "Map", Icon: Circle },
+  { id: "linear", label: "Linear", Icon: Minus },
+  { id: "sequence", label: "Sequence", Icon: AlignLeft },
+];
+
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? "⌘" : "Ctrl+";
 
@@ -45,6 +57,8 @@ export function Toolbar({
   onRedo,
   onNew,
   onImport,
+  views,
+  onToggleView,
   theme,
   onThemeChange,
 }: Props) {
@@ -78,6 +92,29 @@ export function Toolbar({
       <div className="bar-actions">
         {record && (
           <>
+            <div className="view-toggles" role="group" aria-label="Views">
+              {VIEWS.map(({ id, label, Icon }) => {
+                const last = views[id] && Object.values(views).filter(Boolean).length === 1;
+                return (
+                  <button
+                    key={id}
+                    className={views[id] ? "view-toggle on" : "view-toggle"}
+                    aria-pressed={views[id]}
+                    disabled={last}
+                    onClick={() => onToggleView(id)}
+                    title={
+                      last
+                        ? `${label} is the only view open`
+                        : `${views[id] ? "Hide" : "Show"} the ${label.toLowerCase()} view`
+                    }
+                  >
+                    <Icon size={13} />
+                    <span className="bar-text">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <span className="bar-sep" />
             <button
               className="icon-btn"
               onClick={onUndo}

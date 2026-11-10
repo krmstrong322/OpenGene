@@ -450,6 +450,72 @@ button.tag:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
+button.tag:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.tag.warn {
+  border-color: var(--warn-line);
+  color: var(--warn-ink);
+  background: var(--warn-soft);
+}
+.tag-sub {
+  margin-left: 4px;
+  color: var(--faint);
+  font-size: 10px;
+}
+.warn-dot {
+  color: var(--warn-ink);
+  margin-right: 2px;
+  font-size: 10px;
+}
+
+/* Enzyme picker */
+.enz-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.enz-list li + li {
+  border-top: 1px solid var(--line);
+}
+.enz-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.enz-row:hover {
+  background: var(--hover);
+}
+.enz-name {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.enz-site {
+  font-size: 11px;
+  color: var(--muted);
+}
+.enz-meta {
+  font-size: 10px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.enz-cuts {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.enz-cuts.zero {
+  color: var(--faint);
+}
 .swatch {
   width: 9px;
   height: 9px;
@@ -919,6 +985,10 @@ button.tag:hover {
 }
 .map-svg .cut {
   stroke: var(--map-cut);
+}
+.map-svg .cut.methyl {
+  stroke: var(--warn-ink);
+  stroke-dasharray: 2 1.5;
 }
 .map-svg .cut-label {
   fill: var(--map-cut);

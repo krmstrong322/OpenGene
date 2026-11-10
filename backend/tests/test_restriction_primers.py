@@ -64,3 +64,44 @@ def test_design_primer_pair():
     assert 18 <= len(fwd.sequence) <= 30
     assert 18 <= len(rev.sequence) <= 30
     assert fwd.tm > 0 and rev.tm > 0
+
+
+# --- enzyme catalog, overhangs, methylation --------------------------------
+
+def test_cut_sites_report_overhangs():
+    from opengene.core import restriction as R
+    seq = "AA" + "GAATTC" + "AA" + "GGTACC" + "AA" + "GATATC" + "AA"
+    by = {s.enzyme: s for s in R.find_cut_sites(make_record(seq, False), ["EcoRI", "KpnI", "EcoRV"])}
+    assert by["EcoRI"].overhang_type == "5'" and by["EcoRI"].overhang == "AATT"
+    assert by["KpnI"].overhang_type == "3'" and by["KpnI"].overhang == "GTAC"
+    assert by["EcoRV"].overhang_type == "blunt" and by["EcoRV"].overhang == ""
+
+
+def test_dam_dcm_cpg_methylation_flags():
+    from opengene.core import restriction as R
+    # MboI GATC is a Dam site; EcoRII CCWGG is a Dcm site.
+    dam = R.find_cut_sites(make_record("TTTGGATCCTTT", False), ["MboI"])
+    assert dam and all("dam" in s.methylation for s in dam)
+    dcm = R.find_cut_sites(make_record("TTTCCAGGTTT", False), ["EcoRII"])
+    assert dcm and all("dcm" in s.methylation for s in dcm)
+    # EcoRI GAATTC has no Dam/Dcm/CpG base in its site.
+    clean = R.find_cut_sites(make_record("TTTGAATTCTTT", False), ["EcoRI"])
+    assert clean and all(not s.methylation for s in clean)
+
+
+def test_methylation_wraps_the_origin():
+    from opengene.core import restriction as R
+    # GATC split across the origin: "ATC....G" so the circle reads ...G|ATC...
+    rec = make_record("ATCAAAAAAAAAAAG", True)  # G at end + ATC at start -> GATC over origin
+    sites = R.find_cut_sites(rec, ["MboI"])
+    assert sites and all("dam" in s.methylation for s in sites)
+
+
+def test_enzyme_catalog_counts_and_suppliers():
+    from opengene.core import restriction as R
+    rec = make_record("AA" + "GAATTC" + "AA" + "GAATTC" + "AA", False)  # EcoRI twice
+    cat = {e.name: e for e in R.enzyme_catalog(rec)}
+    assert len(cat) > 500
+    assert cat["EcoRI"].cuts == 2 and cat["EcoRI"].overhang == "AATT"
+    assert "New England Biolabs" in cat["EcoRI"].suppliers
+    assert cat["EcoRV"].cuts == 0

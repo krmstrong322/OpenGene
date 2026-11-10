@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
-import { TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
+import { METHYL_LABELS, TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
 import {
   arcPath,
   baseToAngle,
@@ -316,13 +316,15 @@ export function CircularMap({
         return (
           <line
             key={`cut-${c.enzyme}-${i}`}
-            className="cut"
+            className={c.methylation.some((m) => m === "dam" || m === "dcm") ? "cut methyl" : "cut"}
             x1={t.from.x}
             y1={t.from.y}
             x2={t.to.x}
             y2={t.to.y}
             strokeWidth={1.5}
-          />
+          >
+            <title>{cutTitle(c)}</title>
+          </line>
         );
       })}
 
@@ -471,6 +473,15 @@ function layoutLabels(labelItems: LabelItem[]): PlacedLabel[] {
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+function cutTitle(c: CutSite): string {
+  const ends =
+    c.overhang_type === "blunt" ? "blunt ends" : `${c.overhang_type} overhang ${c.overhang}`;
+  const meth = c.methylation.length
+    ? ` · overlaps ${c.methylation.map((m) => METHYL_LABELS[m]).join(", ")}`
+    : "";
+  return `${c.enzyme} · cuts at ${c.position} · ${ends}${meth}`;
 }
 
 function labelCoords(f: Feature, length: number): string {

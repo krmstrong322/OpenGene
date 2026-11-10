@@ -349,3 +349,14 @@ def test_selection_info_translates_a_selected_feature_on_its_own_strand(client):
     assert info["translation_of"] == "rev" and info["translation_strand"] == -1
     plain = client.get(f"/records/{rid}/selection", params={"start": 4, "end": 19}).json()
     assert plain["translation_of"] == "selection" and plain["translation"] != "MAKG*"
+
+
+def test_enzymes_endpoint_and_cut_site_detail(client):
+    rec = _create(client, seq="AA" + "GAATTC" + "AAAA" + "GGATCC" + "AA")
+    cat = client.get(f"/records/{rec['id']}/enzymes")
+    assert cat.status_code == 200
+    by = {e["name"]: e for e in cat.json()}
+    assert by["EcoRI"]["cuts"] == 1 and by["EcoRI"]["overhang_type"] == "5'"
+    assert "New England Biolabs" in by["EcoRI"]["suppliers"]
+    sites = client.get(f"/records/{rec['id']}/cut_sites", params={"enzymes": "BamHI"}).json()
+    assert sites and sites[0]["overhang"] == "GATC" and "methylation" in sites[0]

@@ -131,7 +131,28 @@ export interface CutSite {
   position: number;
   recognition_site: string;
   strand: number;
+  overhang_type: string; // "5'", "3'", or "blunt"
+  overhang: string; // overhang bases ("" for a blunt cutter)
+  methylation: string[]; // blocking methylation types here: dam / dcm / cpg
 }
+
+// One enzyme in the picker: how often it cuts the open record, its overhang,
+// and which companies sell it.
+export interface EnzymeInfo {
+  name: string;
+  site: string;
+  size: number;
+  overhang_type: string;
+  overhang: string;
+  suppliers: string[];
+  cuts: number;
+}
+
+export const METHYL_LABELS: Record<string, string> = {
+  dam: "Dam (GATC)",
+  dcm: "Dcm (CCWGG)",
+  cpg: "CpG (CG)",
+};
 
 // Facts about a selected stretch, computed by the backend.
 export interface SelectionInfo {

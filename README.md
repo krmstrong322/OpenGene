@@ -90,7 +90,10 @@ makes them handy test files to import.
 - **Map overlays** — toggle designed primers and 6-frame ORFs as directional
   tracks on both the circular and linear maps
 - **ORF detection** across all 6 reading frames (including origin-crossing ORFs)
-- **Restriction** — cut-site mapping, digest fragment sizes, unique cutters (NEB set)
+- **Restriction** — an enzyme picker over the commercial catalog (search, filter by
+  supplier, ready-made sets: unique cutters, unique + 2-cutters, 6+ bp, blunt), digest
+  fragment sizes, the overhang (5′/3′/blunt and its bases) at each cut site, and a flag
+  where a site overlaps a Dam/Dcm/CpG methylation motif
 - **Primers** — Tm / GC / hairpin / dimer analysis and PCR primer-pair design (primer3)
 - **Auto-annotation** — pure-Python seed-and-extend matching against a bundled
   feature library (promoters, terminators, tags, resistance genes, fluorescent

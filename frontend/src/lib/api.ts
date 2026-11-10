@@ -1,5 +1,6 @@
 import type {
   CutSite,
+  EnzymeInfo,
   Feature,
   FramePolicy,
   ORF,
@@ -140,6 +141,8 @@ export const api = {
     ),
 
   uniqueCutters: (id: string) => req<string[]>(`/records/${id}/unique_cutters`),
+
+  enzymes: (id: string) => req<EnzymeInfo[]>(`/records/${id}/enzymes`),
 
   analyzePrimer: (sequence: string, targetTm = 60) =>
     req<PrimerAnalysis>("/primers/analyze", {

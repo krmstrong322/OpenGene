@@ -389,6 +389,14 @@ def digest(record_id: str, req: DigestRequest) -> list[dict]:
     return [asdict(d) for d in restriction_mod.digest(record, req.enzymes)]
 
 
+@app.get("/records/{record_id}/enzymes")
+def enzymes(record_id: str) -> list[dict]:
+    """The commercial enzyme catalog with how often each cuts this record,
+    its overhang and its suppliers — for the enzyme picker."""
+    record = _get(record_id)
+    return [asdict(e) for e in restriction_mod.enzyme_catalog(record)]
+
+
 @app.get("/records/{record_id}/unique_cutters")
 def unique_cutters(record_id: str) -> list[str]:
     record = _get(record_id)

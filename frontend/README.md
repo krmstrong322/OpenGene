@@ -57,6 +57,17 @@ view highlights it in the others and scrolls the sequence to it. The maps render
 directional arrows, stacked lanes/rings for overlapping features, labelled
 features with leader lines, restriction cut sites, and origin-wrapping features.
 
+**Records.** The open record's name in the title bar is editable in place;
+the menu beside it changes topology (circular ↔ linear) and duplicates the
+record. Rename and topology changes are undoable. Files dropped anywhere on the
+window are imported — one file opens, several go to the library — and the
+import button accepts several files too. The record that was open is reopened
+on the next launch (`opengene.lastRecord` in `localStorage`).
+
+**Messages.** One toast at a time: errors stay until dismissed; engine
+warnings (a frameshift that was allowed, primers dropped) and confirmations
+clear themselves.
+
 **Direct editing.** With a cursor in the sequence view, typing a base
 (A/C/G/T or an IUPAC code) inserts it; typed over a selection it replaces the
 selection. Keystrokes are buffered and sent to the engine in order, so each

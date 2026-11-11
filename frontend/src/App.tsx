@@ -15,11 +15,27 @@ import { api } from "./lib/api";
 import { basePos, boundaryLabel, selectionRange } from "./lib/coords";
 import { cleanPaste, copyText, editAtSelection, editErrorMessage, pasteProblem } from "./lib/edits";
 import { useLayout } from "./lib/layout";
+import { readPref, writePref } from "./lib/prefs";
 import { normalizeSpan, selectionLength, selectionSegments } from "./lib/selection";
 import { reverseComplement } from "./lib/translate";
 import { useTheme } from "./lib/theme";
 import type { CutSite, Feature, FramePolicy, ORF, PlasmidRecord, Selection } from "./lib/types";
 import { TYPE_COLORS } from "./lib/types";
+
+interface Toast {
+  kind: "error" | "warning" | "info";
+  text: string;
+}
+
+const LAST_RECORD_KEY = "opengene.lastRecord";
+const FRAME_POLICY_KEY = "opengene.framePolicy";
+
+// The engine's parser errors, in words a user can act on.
+function importProblem(detail: string): string {
+  const d = detail.replace(/^parse failed:\s*/i, "");
+  if (/no records found/i.test(d)) return "no sequence found — is this a GenBank, FASTA, EMBL or SnapGene file?";
+  return d;
+}
 
 const MOD =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
@@ -33,7 +49,17 @@ export default function App() {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [cutSites, setCutSites] = useState<CutSite[]>([]);
   const [enzymeInput, setEnzymeInput] = useState("EcoRI, HindIII, BamHI, XhoI, NdeI");
-  const [error, setError] = useState<string | null>(null);
+  // One message at a time, bottom right. Errors stay until dismissed;
+  // warnings and confirmations clear themselves.
+  const [toast, setToast] = useState<Toast | null>(null);
+  const setError = useCallback((text: string) => setToast({ kind: "error", text }), []);
+  const warn = useCallback((text: string) => setToast({ kind: "warning", text }), []);
+  const inform = useCallback((text: string) => setToast({ kind: "info", text }), []);
+  useEffect(() => {
+    if (!toast || toast.kind === "error") return;
+    const t = window.setTimeout(() => setToast(null), toast.kind === "warning" ? 8000 : 4000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
   const [status, setStatus] = useState<string>("connecting…");
   // Map overlay tracks shared across the circular and linear views.
   const [orfs, setOrfs] = useState<ORF[]>([]);
@@ -43,7 +69,14 @@ export default function App() {
   const [showNew, setShowNew] = useState(false);
   // How edits that would break a CDS reading frame are handled; shared by the
   // Edit tab and by paste/delete in the sequence view.
-  const [framePolicy, setFramePolicy] = useState<FramePolicy>("reject");
+  const [framePolicy, setFramePolicyState] = useState<FramePolicy>(() => {
+    const saved = readPref(FRAME_POLICY_KEY);
+    return saved === "reject" || saved === "pad" || saved === "allow" ? saved : "allow";
+  });
+  const setFramePolicy = useCallback((p: FramePolicy) => {
+    setFramePolicyState(p);
+    writePref(FRAME_POLICY_KEY, p);
+  }, []);
   const [theme, setTheme] = useTheme();
   const fileRef = useRef<HTMLInputElement>(null);
   const circularRef = useRef<HTMLDivElement>(null);
@@ -254,7 +287,7 @@ export default function App() {
         start: res.at,
         end: bases ? Math.min(res.record.length, res.at + res.inserted) : res.at,
       });
-      if (res.warnings.length) setError(res.warnings.join("\n"));
+      if (res.warnings.length) warn(res.warnings.join("\n"));
     } catch (e) {
       setError(editErrorMessage(e));
     }
@@ -340,19 +373,137 @@ export default function App() {
     return out;
   };
 
-  const handleImport = async (file: File) => {
+  // ----- opening, closing and managing records -----
+  const openRecord = useCallback((r: PlasmidRecord) => {
+    setSelection(null);
+    setRecord(r);
+    writePref(LAST_RECORD_KEY, r.id);
+  }, []);
+
+  const showLibrary = useCallback(() => {
+    setRecord(null);
+    setSelection(null);
+    writePref(LAST_RECORD_KEY, null);
+  }, []);
+
+  // Reopen the record that was open last time, if it still exists.
+  const [booting, setBooting] = useState(() => readPref(LAST_RECORD_KEY) !== null);
+  useEffect(() => {
+    const last = readPref(LAST_RECORD_KEY);
+    if (!last) return;
+    let cancelled = false;
+    api
+      .getRecord(last)
+      .then((r) => !cancelled && openRecord(r))
+      .catch(() => writePref(LAST_RECORD_KEY, null))
+      .finally(() => !cancelled && setBooting(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [openRecord]);
+
+  useEffect(() => {
+    document.title = record ? `${record.name} — OpenGene` : "OpenGene — Plasmid Editor";
+  }, [record?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Import one or many files. A single file opens straight away; several are
+  // added to the library, which is then shown.
+  const [libraryVersion, setLibraryVersion] = useState(0);
+  const [importing, setImporting] = useState(false);
+  const importFiles = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+      setImporting(true);
+      const imported: PlasmidRecord[] = [];
+      const failed: string[] = [];
+      for (const file of files) {
+        try {
+          imported.push(await api.importFile(file));
+        } catch (e) {
+          failed.push(`${file.name}: ${importProblem((e as Error).message)}`);
+        }
+      }
+      setImporting(false);
+      if (files.length === 1 && imported.length === 1) {
+        openRecord(imported[0]);
+      } else if (imported.length) {
+        showLibrary();
+        setLibraryVersion((v) => v + 1);
+      }
+      if (failed.length) {
+        const ok = imported.length
+          ? `Imported ${imported.length} of ${files.length} files. `
+          : "";
+        setError(`${ok}Couldn't import:\n${failed.join("\n")}`);
+      } else if (imported.length > 1) {
+        inform(`Imported ${imported.length} files.`);
+      }
+    },
+    [openRecord, showLibrary, setError, inform],
+  );
+
+  // Files dropped anywhere on the window are imported.
+  const [dropping, setDropping] = useState(false);
+  useEffect(() => {
+    let depth = 0;
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const enter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth++;
+      setDropping(true);
+    };
+    const over = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    };
+    const leave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDropping(false);
+    };
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDropping(false);
+      void importFiles(Array.from(e.dataTransfer?.files ?? []));
+    };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragover", over);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("drop", drop);
+    };
+  }, [importFiles]);
+
+  // Rename the open record or change its topology (both undoable).
+  const updateRecord = async (changes: { name?: string; isCircular?: boolean }) => {
+    if (!record) return;
     try {
-      const r = await api.importFile(file);
-      setSelection(null);
-      setRecord(r);
+      const updated = await api.updateRecord(record.id, changes);
+      if (changes.isCircular !== undefined) setSelection(null);
+      setRecord(updated);
+      const warnings = updated.history[updated.history.length - 1]?.warnings ?? [];
+      if (changes.isCircular !== undefined && warnings.length) warn(warnings.join("\n"));
     } catch (e) {
       setError((e as Error).message);
     }
   };
 
-  const showLibrary = () => {
-    setRecord(null);
-    setSelection(null);
+  const duplicateOpenRecord = async () => {
+    if (!record) return;
+    try {
+      const copy = await api.duplicateRecord(record.id);
+      openRecord(copy);
+      inform(`Now working on “${copy.name}”.`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
 
   // Feature types present in the record, for the map legend.
@@ -374,6 +525,9 @@ export default function App() {
         onRedo={redo}
         onNew={() => setShowNew(true)}
         onImport={openFilePicker}
+        onRename={(name) => void updateRecord({ name })}
+        onSetCircular={(isCircular) => void updateRecord({ isCircular })}
+        onDuplicate={() => void duplicateOpenRecord()}
         views={views}
         onToggleView={toggleView}
         theme={theme}
@@ -384,19 +538,19 @@ export default function App() {
         type="file"
         accept=".gb,.gbk,.genbank,.fasta,.fa,.fna,.embl,.dna,.ab1,.abi,.scf"
         hidden
+        multiple
         onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void handleImport(f);
+          void importFiles(Array.from(e.target.files ?? []));
           e.target.value = "";
         }}
       />
 
-      {!record ? (
+      {booting ? (
+        <main className="library" aria-busy="true" />
+      ) : !record ? (
         <RecordLibrary
-          onOpen={(r) => {
-            setSelection(null);
-            setRecord(r);
-          }}
+          key={libraryVersion}
+          onOpen={openRecord}
           onNew={() => setShowNew(true)}
           onImport={openFilePicker}
           onError={setError}
@@ -547,6 +701,7 @@ export default function App() {
                     framePolicy={framePolicy}
                     onRecordChange={setRecord}
                     onError={setError}
+                    onWarning={warn}
                     onMenu={openMenu}
                   />
               )}
@@ -578,8 +733,7 @@ export default function App() {
           onClose={() => setShowNew(false)}
           onCreated={(r) => {
             setShowNew(false);
-            setSelection(null);
-            setRecord(r);
+            openRecord(r);
           }}
           onError={setError}
         />
@@ -589,10 +743,19 @@ export default function App() {
         <ContextMenu x={menu.x} y={menu.y} entries={menuEntries()} onClose={closeMenu} />
       )}
 
-      {error && (
-        <div className="toast" role="alert">
-          <div className="toast-body">{error}</div>
-          <button className="icon-btn sm" onClick={() => setError(null)} aria-label="Dismiss">
+      {(dropping || importing) && (
+        <div className="drop-overlay" aria-live="polite">
+          <div className="drop-card">
+            <strong>{importing ? "Importing…" : "Drop files to import"}</strong>
+            {!importing && <span>GenBank, FASTA, EMBL, SnapGene .dna, or Sanger traces (.ab1, .scf)</span>}
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className={`toast ${toast.kind}`} role={toast.kind === "error" ? "alert" : "status"}>
+          <div className="toast-body">{toast.text}</div>
+          <button className="icon-btn sm" onClick={() => setToast(null)} aria-label="Dismiss">
             <X size={14} />
           </button>
         </div>

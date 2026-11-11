@@ -8,6 +8,7 @@ string edits from outside the engine.
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict
 from typing import AsyncIterator, Iterator, Literal
@@ -62,6 +63,13 @@ class CreateRequest(BaseModel):
     name: str = "untitled"
     sequence: str
     is_circular: bool = Field(default=True, alias="isCircular")
+    model_config = {"populate_by_name": True}
+
+
+class RecordUpdate(BaseModel):
+    """Partial update of a record's own properties. Only provided fields change."""
+    name: str | None = None
+    is_circular: bool | None = Field(default=None, alias="isCircular")
     model_config = {"populate_by_name": True}
 
 
@@ -194,6 +202,45 @@ def restore_samples() -> dict:
 @app.get("/records/{record_id}")
 def get_record(record_id: str) -> dict:
     return _record_response(_get(record_id))
+
+
+@app.patch("/records/{record_id}")
+def update_record(record_id: str, req: RecordUpdate) -> dict:
+    """Rename a record and/or change its topology (both undoable)."""
+    with _edit_txn(record_id) as (record, pre):
+        try:
+            if req.name is not None:
+                seq_mod.rename_record(record, req.name)
+            if req.is_circular is not None:
+                seq_mod.set_topology(record, req.is_circular)
+        except seq_mod.SequenceError as e:
+            # A half-applied update (renamed, then topology refused) must not
+            # stick: restore the pre-edit state before reporting.
+            restored = PlasmidRecord.model_validate_json(pre)
+            record.name, record.is_circular = restored.name, restored.is_circular
+            record.features, record.primers = restored.features, restored.primers
+            record.history = restored.history
+            raise HTTPException(status_code=409, detail=str(e))
+        if record.model_dump_json() != pre:
+            store.commit(record, pre)
+        return _record_response(record)
+
+
+@app.post("/records/{record_id}/duplicate")
+def duplicate_record(record_id: str) -> dict:
+    """Add an independent copy of a record to the library."""
+    source = _get(record_id)
+    taken = {r.name for r in store.list()}
+    # A copy of "pUC19 copy" is "pUC19 copy 2", not "pUC19 copy copy".
+    base = re.sub(r" copy( \d+)?$", "", source.name) or source.name
+    name = f"{base} copy"
+    k = 2
+    while name in taken:
+        name = f"{base} copy {k}"
+        k += 1
+    copy = seq_mod.duplicate_record(source, name)
+    store.add(copy)
+    return _record_response(copy)
 
 
 @app.delete("/records/{record_id}")

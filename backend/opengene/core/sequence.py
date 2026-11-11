@@ -18,7 +18,15 @@ from typing import Iterable, Literal
 
 from Bio.Seq import Seq
 
-from ..models import VALID_BASES, Feature, FeatureType, HistoryEvent, PlasmidRecord, Segment
+from ..models import (
+    VALID_BASES,
+    Feature,
+    FeatureType,
+    HistoryEvent,
+    PlasmidRecord,
+    Segment,
+    _new_id,
+)
 
 STOP_CODONS = {"TAA", "TAG", "TGA"}
 START_CODON = "ATG"
@@ -594,6 +602,105 @@ def reverse_complement_record(record: PlasmidRecord) -> PlasmidRecord:
         record.primers = []
     _record_history(record, "reverse_complement", "reverse-complemented record", warnings)
     return record
+
+
+# --------------------------------------------------------------------------
+# Record properties: name and topology
+# --------------------------------------------------------------------------
+
+MAX_NAME_LENGTH = 200
+
+
+def rename_record(record: PlasmidRecord, name: str) -> PlasmidRecord:
+    """Give the record a new name."""
+    name = " ".join(name.split())
+    if not name:
+        raise SequenceError("a name can't be empty")
+    if len(name) > MAX_NAME_LENGTH:
+        raise SequenceError(f"a name can be at most {MAX_NAME_LENGTH} characters")
+    if name != record.name:
+        old = record.name
+        record.name = name
+        _record_history(record, "rename", f"renamed {old!r} to {name!r}")
+    return record
+
+
+def _crosses_origin(f: Feature, n: int) -> bool:
+    """True if the feature runs through the origin: a piece that wraps, or
+    pieces that continue past the end of the sequence back to its start."""
+    prev_end = None
+    for s, e in f.spans():
+        end = e if e > 0 else n
+        if s > end:
+            return True
+        if prev_end is not None and s < prev_end:
+            return True
+        prev_end = end
+    return False
+
+
+def set_topology(record: PlasmidRecord, circular: bool) -> PlasmidRecord:
+    """Make the record circular or linear without changing its sequence.
+
+    Closing a linear record is always possible. Opening a circular one at its
+    origin is refused while a feature spans the origin — it would have no
+    single place on the linear molecule — so nothing is silently cut in two.
+    Primers that bind across the origin are dropped, with a warning.
+    """
+    if record.is_circular == circular:
+        return record
+    if record.trace is not None and circular:
+        raise SequenceError("a sequencing read is linear and can't be made circular")
+    warnings: list[str] = []
+    if not circular:
+        n = record.length
+        crossing = [f for f in record.features if _crosses_origin(f, n)]
+        if crossing:
+            raise SequenceError(
+                f"can't make this linear: {_names(crossing)} "
+                f"{'spans' if len(crossing) == 1 else 'span'} the origin. "
+                "Move or remove "
+                f"{'it' if len(crossing) == 1 else 'them'} first."
+            )
+        # A piece that ends exactly at the origin (end 0) ends at the last base.
+        record.features = [
+            _with_spans(f, [(s, e if e > 0 or s == 0 else n) for s, e in f.spans()])
+            if any(e == 0 and s > 0 for s, e in f.spans())
+            else f
+            for f in record.features
+        ]
+        kept = []
+        dropped = []
+        for p in record.primers:
+            if p.bind_start > p.bind_end and p.bind_end != 0:
+                dropped.append(p.name)
+            else:
+                kept.append(p)
+        if dropped:
+            record.primers = kept
+            warnings.append(
+                f"dropped primers {', '.join(sorted(dropped))}: they bind across the origin"
+            )
+    record.is_circular = circular
+    _record_history(
+        record, "topology", f"made {'circular' if circular else 'linear'}", warnings
+    )
+    return record
+
+
+def duplicate_record(record: PlasmidRecord, name: str | None = None) -> PlasmidRecord:
+    """An independent copy of the record, with its own id and a fresh history."""
+    now = time.time()
+    return record.model_copy(
+        deep=True,
+        update={
+            "id": _new_id(),
+            "name": (name or f"{record.name} copy")[:MAX_NAME_LENGTH],
+            "history": [],
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
 
 
 # --------------------------------------------------------------------------

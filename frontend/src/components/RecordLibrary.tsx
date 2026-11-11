@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, Trash2 } from "lucide-react";
+import { Copy, Search, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import type { PlasmidRecord, RecordSummary } from "../lib/types";
 
@@ -48,6 +48,16 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
     try {
       await api.deleteRecord(id);
       setConfirmId(null);
+      load();
+    } catch (e) {
+      onError((e as Error).message);
+    }
+  };
+
+  const duplicate = async (id: string) => {
+    try {
+      const copy = await api.duplicateRecord(id);
+      setNotice(`Added “${copy.name}”.`);
       load();
     } catch (e) {
       onError((e as Error).message);
@@ -171,6 +181,15 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
                       </button>
                     </span>
                   ) : (
+                    <>
+                    <button
+                      className="icon-btn sm"
+                      title={`Duplicate ${r.name}`}
+                      aria-label={`Duplicate ${r.name}`}
+                      onClick={() => duplicate(r.id)}
+                    >
+                      <Copy size={13} />
+                    </button>
                     <button
                       className="icon-btn sm danger"
                       title={`Delete ${r.name}`}
@@ -179,6 +198,7 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
                     >
                       <Trash2 size={13} />
                     </button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -190,7 +210,7 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
         {rows !== null && rows.length === 0 && (
           <div className="table-empty">
             <strong>No plasmids saved yet</strong>
-            Import a GenBank, FASTA, EMBL or SnapGene file, paste a sequence, or use{" "}
+            Drop GenBank, FASTA, EMBL or SnapGene files anywhere on this window, paste a sequence, or use{" "}
             <b>Add samples</b> for a set of reference plasmids to explore.
           </div>
         )}
@@ -199,7 +219,7 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
         )}
 
         <p className="library-foot">
-          {notice ?? "Plasmids are saved on this computer automatically."}
+          {notice ?? "Plasmids are saved on this computer automatically. Drop files anywhere on this window to import them."}
         </p>
       </div>
     </main>

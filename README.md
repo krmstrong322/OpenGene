@@ -85,6 +85,11 @@ makes them handy test files to import.
   stepped through with Enter / Shift+Enter
 - **Editing** — insert / delete / mutate / replace / reverse-complement, with
   correct feature-coordinate maintenance and circular boundary wrap-around
+- **Records** — rename, switch between circular and linear (refused while a feature
+  spans the origin), duplicate; drag-and-drop or multi-file import; the last open record
+  reopens on launch
+- **Reading frame** — an edit that shifts a CDS's frame is applied with a warning by
+  default; the Edit tab can instead block such edits or pad inserts with N
 - **Undo / redo** — every edit is reversible (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z);
   the full record state steps back and forth, and a rejected edit is a no-op
 - **Feature editing** — edit an existing feature's name, type, strand,

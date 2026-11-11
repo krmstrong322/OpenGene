@@ -594,11 +594,31 @@ button.tag:disabled {
   background: var(--hover);
 }
 .crumb-name {
+  border: 1px solid transparent;
+  background: none;
+  padding: 2px 5px;
+  margin: 0 -5px;
+  border-radius: var(--r);
+  color: var(--ink);
+  font: inherit;
+  cursor: text;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 36vw;
+}
+.crumb-name:hover {
+  border-color: var(--line-strong);
+}
+.crumb-input {
+  width: min(36vw, 320px);
+  height: 26px;
+  font-weight: 600;
+}
+.menu.left {
+  right: auto;
+  left: 0;
 }
 .crumb-meta {
   color: var(--muted);
@@ -797,6 +817,42 @@ button.tag:disabled {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
   font-size: 12.5px;
 }
+.toast.warning {
+  border-color: var(--warn-ink);
+}
+.toast.info {
+  border-color: var(--ok);
+}
+
+/* Shown while files are dragged over the window */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+}
+.drop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 22px 32px;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 14px;
+  text-align: center;
+}
+.drop-card span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .toast-body {
   flex: 1;
   min-width: 0;
@@ -933,6 +989,7 @@ button.tag:disabled {
 .table .row-actions {
   width: 1%;
   text-align: right;
+  white-space: nowrap;
 }
 .table tr:not(:hover) .row-actions .icon-btn:not(:focus-visible) {
   opacity: 0;

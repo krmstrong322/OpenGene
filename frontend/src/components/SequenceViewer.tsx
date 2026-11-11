@@ -46,6 +46,8 @@ interface Props {
   framePolicy: FramePolicy;
   onRecordChange: (r: PlasmidRecord) => void;
   onError: (msg: string) => void;
+  /** Report something the engine did that the user should know about (not a failure). */
+  onWarning?: (msg: string) => void;
   /** Open the right-click menu at a point (over `feature`, if on a feature bar). */
   onMenu?: (x: number, y: number, feature?: Feature) => void;
 }
@@ -452,6 +454,7 @@ function SequenceViewer({
   framePolicy,
   onRecordChange,
   onError,
+  onWarning,
   onMenu,
   opts,
   hits,
@@ -612,7 +615,7 @@ function SequenceViewer({
       onRecordChange(res.record);
       const end = Math.min(res.record.length, res.at + res.inserted);
       select(selectNew ? res.at : end, end);
-      if (res.warnings.length) onError(res.warnings.join("\n"));
+      if (res.warnings.length) (onWarning ?? onError)(res.warnings.join("\n"));
     } catch (err) {
       onError(editErrorMessage(err));
     }
@@ -642,7 +645,7 @@ function SequenceViewer({
           onRecordChange(rec);
           select(p, p);
           scrollToPos(p);
-          if (res.warnings.length) onError(res.warnings.join("\n"));
+          if (res.warnings.length) (onWarning ?? onError)(res.warnings.join("\n"));
         }
       } catch (err) {
         typed.current = "";

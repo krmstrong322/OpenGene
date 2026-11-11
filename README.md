@@ -66,8 +66,10 @@ makes them handy test files to import.
   origin-wrapping features
 - **Sequence view** — both strands, translations under every CDS (minus-strand and
   spliced CDSs included), feature bars and enzyme cut sites on each line; click for a
-  cursor, drag / shift-click / shift-arrows to select; copy, copy reverse complement,
-  paste (inserts or replaces through the engine), delete; the selection shows length,
+  cursor, drag / shift-click / shift-arrows to select; type bases at the cursor or over
+  a selection; copy, copy reverse complement, paste (inserts or replaces through the
+  engine), delete; right-click for a menu (new feature from selection, design primers,
+  edit or remove a feature); the selection shows length,
   GC, Tm, molecular weight and its translation (a selected feature is translated on its
   own strand). Only on-screen lines are drawn, so 100 kb+ constructs stay responsive
 - **Chromatograms** — a trace opens as a linear read with its four channels, base calls,

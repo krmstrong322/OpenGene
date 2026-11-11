@@ -391,6 +391,22 @@ def _invalidate_primers(record: PlasmidRecord, a: int, b: int) -> list[str]:
     return dropped
 
 
+# Messages are read by people, so they number bases from 1 and give ranges
+# inclusively (GenBank style), unlike the 0-based half-open spans used in code.
+def _where(pos: int) -> str:
+    """An insertion point: the boundary after ``pos`` bases."""
+    return "at the start" if pos == 0 else f"after base {pos}"
+
+
+def _bases(start: int, end: int, n: int) -> str:
+    """The span ``[start, end)`` as a 1-based inclusive range."""
+    last = end if end > 0 else n
+    if start + 1 == last:
+        return f"base {last}"
+    label = f"bases {start + 1}–{last}"
+    return f"{label} (across the origin)" if start > end else label
+
+
 def _apply_edit(
     record: PlasmidRecord,
     a: int,
@@ -464,9 +480,11 @@ def insert(
     pos = normalize_index(position, record.length, record.is_circular)
     inserted, warnings = _apply_edit(
         record, pos, pos, insert_seq, frame_policy,
-        f"inserting {len(insert_seq)} bp at {pos}",
+        f"inserting {len(insert_seq)} bp {_where(pos)}",
     )
-    _record_history(record, "insert", f"inserted {len(inserted)} bp at {pos}", warnings)
+    _record_history(
+        record, "insert", f"inserted {len(inserted)} bp {_where(pos)}", warnings
+    )
     return record
 
 
@@ -486,10 +504,11 @@ def delete(
         raise SequenceError("nothing to delete: empty range")
     removed = sum(b - a for a, b in _segments(start, end, n))
     _, warnings = _apply_edit(
-        record, start, end, "", frame_policy, f"deleting [{start},{end})"
+        record, start, end, "", frame_policy, f"deleting {_bases(start, end, n)}"
     )
-    where = "spanning origin" if start > end else f"at [{start},{end})"
-    _record_history(record, "delete", f"deleted {removed} bp {where}", warnings)
+    _record_history(
+        record, "delete", f"deleted {removed} bp ({_bases(start, end, n)})", warnings
+    )
     return record
 
 
@@ -505,7 +524,7 @@ def mutate(record: PlasmidRecord, position: int, new_base: str) -> PlasmidRecord
         record.sequence[:position] + new_base + record.sequence[position + 1:]
     )
     _record_history(
-        record, "mutate", f"{old}>{new_base} at {position}"
+        record, "mutate", f"{old}>{new_base} at base {position + 1}"
     )
     return record
 
@@ -531,12 +550,12 @@ def replace_range(
         return insert(record, start, replacement, frame_policy)
     removed = sum(b - a for a, b in _segments(start, end, n))
     inserted, warnings = _apply_edit(
-        record, start, end, replacement, frame_policy, f"replacing [{start},{end})"
+        record, start, end, replacement, frame_policy, f"replacing {_bases(start, end, n)}"
     )
     _record_history(
         record,
         "replace",
-        f"replaced {removed} bp at [{start},{end}) with {len(inserted)} bp",
+        f"replaced {removed} bp ({_bases(start, end, n)}) with {len(inserted)} bp",
         warnings,
     )
     return record

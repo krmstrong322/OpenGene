@@ -13,6 +13,15 @@ import { Copy, Search } from "lucide-react";
 import { api } from "../lib/api";
 import { FindBar } from "./FindBar";
 import { boundaryLabel, selectionRange } from "../lib/coords";
+import {
+  cleanPaste,
+  copyText,
+  editAtSelection,
+  editErrorMessage,
+  isBaseKey,
+  pasteProblem,
+  selectedSpan,
+} from "../lib/edits";
 import { selectionSegments } from "../lib/selection";
 import { cdsTranslations, complement, reverseComplement, type CdsTranslation } from "../lib/translate";
 import type {
@@ -37,6 +46,8 @@ interface Props {
   framePolicy: FramePolicy;
   onRecordChange: (r: PlasmidRecord) => void;
   onError: (msg: string) => void;
+  /** Open the right-click menu at a point (over `feature`, if on a feature bar). */
+  onMenu?: (x: number, y: number, feature?: Feature) => void;
 }
 
 // Vertical layout of one sequence line, in px.
@@ -49,7 +60,6 @@ const PAD_X = 14;
 const OVERSCAN = 400; // px rendered above/below the viewport
 const CUT_FONT_RATIO = 10 / 12; // enzyme labels are 10px in a 12px-mono grid
 
-const IUPAC = /^[ACGTURYSWKMBDHVN]*$/;
 
 // Column of base `k` within a line: one blank column after every 10 bases.
 const colOf = (k: number) => k + Math.floor(k / 10);
@@ -246,33 +256,6 @@ function groupBases(s: string): string {
   return s.replace(/(.{10})(?=.)/g, "$1 ");
 }
 
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return;
-  } catch {
-    // Fall back for contexts without the async clipboard API.
-  }
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.opacity = "0";
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand("copy");
-  ta.remove();
-}
-
-// Pasted text as bases: drop FASTA headers, whitespace and numbering.
-function cleanPaste(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .filter((l) => !l.startsWith(">"))
-    .join("")
-    .replace(/[\s\d]/g, "")
-    .toUpperCase();
-}
-
 export function SequencePane(props: Props) {
   const { record, selection } = props;
   const [opts, setOpts] = useState<Options>({
@@ -388,7 +371,7 @@ function SelectionBar({ record, selection }: { record: PlasmidRecord; selection:
   if (!selection) {
     return (
       <div className="seq-info muted">
-        Click to place the cursor, drag to select. Shift extends; Ctrl/⌘+C copies, Ctrl/⌘+V pastes.
+        Click to place the cursor, then type or paste bases. Drag to select; right-click for more.
       </div>
     );
   }
@@ -469,6 +452,7 @@ function SequenceViewer({
   framePolicy,
   onRecordChange,
   onError,
+  onMenu,
   opts,
   hits,
   currentHit,
@@ -620,61 +604,81 @@ function SequenceViewer({
   }, [posAt, select]);
 
   // ----- editing through the engine -----
-  const applyEdit = async (
-    call: () => Promise<PlasmidRecord>,
-    at: number,
-    inserted: (updated: PlasmidRecord) => number,
-  ) => {
+  // Put `bases` at `sel` (replacing a range, inserting at a cursor; "" deletes)
+  // and leave the cursor after them, or select them when `selectNew` is set.
+  const edit = async (sel: Selection, bases: string, selectNew: boolean) => {
     try {
-      const updated = await call();
-      onRecordChange(updated);
-      const k = Math.max(0, inserted(updated));
-      const a = Math.min(at, updated.length);
-      select(a, Math.min(updated.length, a + k));
-      const warnings = updated.history[updated.history.length - 1]?.warnings ?? [];
-      if (warnings.length) onError(warnings.join("\n"));
+      const res = await editAtSelection(record, sel, bases, framePolicy);
+      onRecordChange(res.record);
+      const end = Math.min(res.record.length, res.at + res.inserted);
+      select(selectNew ? res.at : end, end);
+      if (res.warnings.length) onError(res.warnings.join("\n"));
     } catch (err) {
-      onError((err as Error).message);
+      onError(editErrorMessage(err));
     }
   };
 
-  const range = () => {
-    if (!selection || selection.start === selection.end) return null;
-    return selection.wrap
-      ? { start: selection.start, end: selection.end, len: n - selection.start + selection.end }
-      : {
-          start: Math.min(selection.start, selection.end),
-          end: Math.max(selection.start, selection.end),
-          len: Math.abs(selection.end - selection.start),
-        };
+  // Typing. Keystrokes are buffered and sent in order, one engine call at a
+  // time, so fast typing can't race the cursor: whatever arrives while a call
+  // is in flight goes out together in the next one.
+  const typed = useRef("");
+  const typing = useRef(false);
+  const typeBases = (bases: string) => {
+    if (!selection) return;
+    typed.current += bases;
+    if (typing.current) return;
+    typing.current = true;
+    void (async () => {
+      let rec = record;
+      let sel: Selection = selection;
+      try {
+        while (typed.current) {
+          const next = typed.current;
+          typed.current = "";
+          const res = await editAtSelection(rec, sel, next, framePolicy);
+          rec = res.record;
+          const p = Math.min(rec.length, res.at + res.inserted);
+          sel = { start: p, end: p };
+          onRecordChange(rec);
+          select(p, p);
+          scrollToPos(p);
+          if (res.warnings.length) onError(res.warnings.join("\n"));
+        }
+      } catch (err) {
+        typed.current = "";
+        onError(editErrorMessage(err));
+      } finally {
+        typing.current = false;
+      }
+    })();
   };
 
   const onPaste = (e: ReactClipboardEvent) => {
     e.preventDefault();
     const bases = cleanPaste(e.clipboardData.getData("text"));
     if (!bases) return;
-    if (!IUPAC.test(bases)) {
-      const bad = Array.from(new Set(bases.replace(/[ACGTURYSWKMBDHVN]/g, ""))).join(" ");
-      onError(`Can't paste: the clipboard holds characters that aren't bases (${bad}).`);
+    const problem = pasteProblem(bases);
+    if (problem) {
+      onError(problem);
       return;
     }
     if (!selection) {
       onError("Click in the sequence to place the cursor, then paste.");
       return;
     }
-    const r = range();
-    if (r) {
-      void applyEdit(
-        () => api.replace(record.id, r.start, r.end, bases, framePolicy),
-        // A replace that wraps the origin renumbers the record: what was kept
-        // now starts at 0 and the new bases follow it.
-        r.start > r.end ? n - r.len : r.start,
-        (u) => u.length - (n - r.len),
-      );
-    } else {
-      const at = selection.start;
-      void applyEdit(() => api.insert(record.id, at, bases, framePolicy), at, (u) => u.length - n);
-    }
+    void edit(selection, bases, true);
+  };
+
+  // Right-click: keep a selection that was clicked inside, otherwise move the
+  // cursor to the click first (as a text editor does), then open the menu.
+  const onContextMenu = (e: ReactMouseEvent) => {
+    if (!onMenu) return;
+    e.preventDefault();
+    scrollerRef.current?.focus();
+    const p = posAt(e.clientX, e.clientY);
+    const inside = selectionSegments(selection, n).some(([a, b]) => p >= a && p <= b);
+    if (!inside) select(p, p);
+    onMenu(e.clientX, e.clientY);
   };
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
@@ -703,19 +707,22 @@ function SequenceViewer({
     }
     if ((key === "Backspace" || key === "Delete") && selection) {
       e.preventDefault();
-      const r = range();
-      if (r) {
-        void applyEdit(
-          () => api.del(record.id, r.start, r.end, framePolicy),
-          r.start > r.end ? n - r.len : r.start,
-          () => 0,
-        );
+      if (typing.current) return;
+      if (selectedSpan(selection, n)) {
+        void edit(selection, "", false);
       } else {
         const p = selection.start;
         const [a, b] = key === "Backspace" ? [p - 1, p] : [p, p + 1];
         if (a < 0 || b > n) return;
-        void applyEdit(() => api.del(record.id, a, b, framePolicy), a, () => 0);
+        void edit({ start: a, end: b }, "", false);
       }
+      return;
+    }
+    // A base typed at the cursor is inserted; typed over a selection it
+    // replaces the selection.
+    if (!mod && !e.altKey && isBaseKey(key) && selection) {
+      e.preventDefault();
+      typeBases(key.toUpperCase());
       return;
     }
     const steps: Record<string, number> = {
@@ -729,7 +736,7 @@ function SequenceViewer({
     if (key in steps) {
       if (!e.shiftKey && selection && selection.start !== selection.end && (key === "ArrowLeft" || key === "ArrowRight")) {
         // Collapse a selection to its edge, like a text editor.
-        const r = range()!;
+        const r = selectedSpan(selection, n)!;
         target = key === "ArrowLeft" ? r.start : r.end;
       } else {
         target = focus + steps[key];
@@ -785,6 +792,7 @@ function SequenceViewer({
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
+      onContextMenu={onContextMenu}
     >
       <span ref={probeRef} className="seq-probe" aria-hidden="true">
         0000000000
@@ -914,6 +922,12 @@ function SequenceViewer({
                       e.stopPropagation();
                       e.preventDefault();
                       onSelectFeature(lf.f);
+                    }}
+                    onContextMenu={(e) => {
+                      if (!onMenu) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onMenu(e.clientX, e.clientY, lf.f);
                     }}
                     onMouseEnter={() => onHover(lf.f.id)}
                     onMouseLeave={() => onHover(null)}

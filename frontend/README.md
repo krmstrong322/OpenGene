@@ -57,6 +57,16 @@ view highlights it in the others and scrolls the sequence to it. The maps render
 directional arrows, stacked lanes/rings for overlapping features, labelled
 features with leader lines, restriction cut sites, and origin-wrapping features.
 
+**Direct editing.** With a cursor in the sequence view, typing a base
+(A/C/G/T or an IUPAC code) inserts it; typed over a selection it replaces the
+selection. Keystrokes are buffered and sent to the engine in order, so each
+burst of typing is one undo step. Right-click in the sequence view, or on a
+feature in any view, for a menu: copy / copy reverse complement / paste /
+delete, *New feature from selection…*, *Design primers for selection*, and for
+a feature *Edit feature…* / *Remove feature*. The menu items that belong to the
+inspector are sent to it as an `InspectorCommand`, which opens the right tab.
+The shared edit helpers live in `lib/edits.ts`; they only ever call the engine.
+
 **Coordinates.** State and the API use 0-based, half-open spans; everything the
 user reads or types is 1-based and inclusive, GenBank-style (a feature stored as
 `[182, 211)` shows as `183–211`; a cursor shows the two bases it sits between,
@@ -90,6 +100,8 @@ desktop app), and icons come from `lucide-react`.
 | `components/Toolbar.tsx` | Title bar: breadcrumb, undo/redo, import/export, theme |
 | `components/RecordLibrary.tsx` | Start screen: sortable, filterable table of saved plasmids |
 | `components/NewRecordDialog.tsx` | Modal for creating a record from pasted DNA |
+| `components/ContextMenu.tsx` | Right-click menu (keyboard-operable, stays on screen) |
+| `lib/edits.ts` | Type / paste / delete at the selection, via the engine |
 | `components/Splitter.tsx` | Draggable, keyboard-operable divider between maps and sequence |
 | `lib/coords.ts` | 0-based internal spans ↔ 1-based positions shown to the user |
 | `lib/layout.ts` | Open views + divider position (persisted) |

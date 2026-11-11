@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { selectionLength } from "../lib/selection";
@@ -57,6 +57,32 @@ interface Props {
   setEnzymeInput: (s: string) => void;
   framePolicy: FramePolicy;
   setFramePolicy: (p: FramePolicy) => void;
+  /** A request from elsewhere in the app (the right-click menu) to act here. */
+  command: InspectorCommand | null;
+  onCommandDone: () => void;
+}
+
+export type InspectorCommand =
+  | { kind: "new-feature" }
+  | { kind: "edit-feature"; featureId: string }
+  | { kind: "design-primers" };
+
+// Run `handle` once for each new command. The ref survives StrictMode's
+// double-invoked effects, so a command is never acted on twice.
+function useCommand(
+  command: InspectorCommand | null,
+  onDone: () => void,
+  handle: (c: InspectorCommand) => boolean,
+) {
+  const seen = useRef<InspectorCommand | null>(null);
+  useEffect(() => {
+    if (!command || seen.current === command) return;
+    if (handle(command)) {
+      seen.current = command;
+      onDone();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [command]);
 }
 
 type Tab = "edit" | "features" | "orfs" | "enzymes" | "primers";
@@ -72,6 +98,10 @@ const TABS: { id: Tab; label: string }[] = [
 export function EditPanel(props: Props) {
   const { record, selection, onRecordChange, onError } = props;
   const [tab, setTab] = useState<Tab>("edit");
+  // A command opens the tab that handles it; that tab then carries it out.
+  useEffect(() => {
+    if (props.command) setTab(props.command.kind === "design-primers" ? "primers" : "features");
+  }, [props.command]);
 
   return (
     <aside className="panel">
@@ -94,7 +124,14 @@ export function EditPanel(props: Props) {
         {tab === "orfs" && <OrfsTab record={record} onError={onError} />}
         {tab === "enzymes" && <EnzymesTab {...props} />}
         {tab === "primers" && (
-          <PrimersTab record={record} selection={selection} onError={onError} onRecordChange={onRecordChange} />
+          <PrimersTab
+            record={record}
+            selection={selection}
+            onError={onError}
+            onRecordChange={onRecordChange}
+            command={props.command}
+            onCommandDone={props.onCommandDone}
+          />
         )}
       </div>
     </aside>
@@ -129,29 +166,15 @@ function EditTab({ record, selection, onRecordChange, onError, framePolicy, setF
 
   return (
     <div className="stack">
-      <section className="section">
-        <h4 className="section-title">Reading frame</h4>
-        <label className="field" htmlFor="frame-policy">
-          <span>Edits inside a CDS that aren’t a multiple of 3 bp</span>
-          <select
-            id="frame-policy"
-            className="select"
-            value={framePolicy}
-            onChange={(e) => setFramePolicy(e.target.value as FramePolicy)}
-          >
-            <option value="reject">Block them (protect coding sequences)</option>
-            <option value="pad">Pad inserts with N to a whole codon</option>
-            <option value="allow">Allow the frameshift and log a warning</option>
-          </select>
-        </label>
-        {warnings.length > 0 && (
+      {warnings.length > 0 && (
+        <section className="section">
           <div className="notice" role="status">
             {warnings.map((w, i) => (
               <p key={i}>{w}</p>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       <section className="section">
         <h4 className="section-title">Insert</h4>
@@ -272,11 +295,38 @@ function EditTab({ record, selection, onRecordChange, onError, framePolicy, setF
           Reverse-complement
         </button>
       </section>
+
+      <section className="section">
+        <h4 className="section-title">Reading frame</h4>
+        <label className="field" htmlFor="frame-policy">
+          <span>Edits inside a CDS that aren’t a multiple of 3 bp</span>
+          <select
+            id="frame-policy"
+            className="select"
+            value={framePolicy}
+            onChange={(e) => setFramePolicy(e.target.value as FramePolicy)}
+          >
+            <option value="reject">Block them (protect coding sequences)</option>
+            <option value="pad">Pad inserts with N to a whole codon</option>
+            <option value="allow">Allow the frameshift and log a warning</option>
+          </select>
+        </label>
+      </section>
     </div>
   );
 }
 
-function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onError }: Props) {
+function FeaturesTab({
+  record,
+  selection,
+  onRecordChange,
+  onSelectFeature,
+  onError,
+  command,
+  onCommandDone,
+}: Props) {
+  const nameRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const [annotating, setAnnotating] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("misc_feature");
@@ -293,6 +343,24 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
     setSelEnd(ui.last);
   }, [selection, record.length]);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  useCommand(command, onCommandDone, (c) => {
+    if (c.kind === "new-feature") {
+      nameRef.current?.focus();
+      nameRef.current?.scrollIntoView({ block: "nearest" });
+      return true;
+    }
+    if (c.kind === "edit-feature") {
+      setEditingId(c.featureId);
+      window.setTimeout(() => {
+        listRef.current
+          ?.querySelector(`[data-feature-id="${CSS.escape(c.featureId)}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      }, 0);
+      return true;
+    }
+    return false;
+  });
 
   const annotate = async () => {
     setAnnotating(true);
@@ -337,10 +405,11 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
         <h4 className="section-title">
           Features <span className="count">{record.features.length}</span>
         </h4>
-        <ul className="list">
+        <ul className="list" ref={listRef}>
           {record.features.map((f) => (
             <li
               key={f.id}
+              data-feature-id={f.id}
               className={
                 editingId === f.id ? "editing" : selection?.featureId === f.id ? "selected" : undefined
               }
@@ -417,7 +486,15 @@ function FeaturesTab({ record, selection, onRecordChange, onSelectFeature, onErr
         <div className="row">
           <label className="field">
             <span>Name</span>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            <input
+              ref={nameRef}
+              className="input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && name) void addManual();
+              }}
+            />
           </label>
           <label className="field">
             <span>Type</span>
@@ -904,11 +981,15 @@ function PrimersTab({
   selection,
   onError,
   onRecordChange,
+  command,
+  onCommandDone,
 }: {
   record: PlasmidRecord;
   selection: Selection | null;
   onError: (m: string) => void;
   onRecordChange: (r: PlasmidRecord) => void;
+  command: InspectorCommand | null;
+  onCommandDone: () => void;
 }) {
   const [pair, setPair] = useState<{ forward: Primer; reverse: Primer } | null>(null);
   const [analysis, setAnalysis] = useState<PrimerAnalysis | null>(null);
@@ -926,6 +1007,12 @@ function PrimersTab({
       onError((e as Error).message);
     }
   };
+
+  useCommand(command, onCommandDone, (c) => {
+    if (c.kind !== "design-primers") return false;
+    if (selHi > selLo) void design();
+    return true;
+  });
 
   const analyze = async () => {
     try {

@@ -11,6 +11,8 @@ interface Props {
   cutSites: CutSite[];
   selection: Selection | null;
   onSelectFeature: (f: Feature) => void;
+  /** Open the right-click menu for a feature. */
+  onFeatureMenu?: (x: number, y: number, f: Feature) => void;
   onHover: (featureId: string | null) => void;
   hoveredId: string | null;
   primers?: Primer[];
@@ -58,6 +60,7 @@ export function LinearMap({
   cutSites,
   selection,
   onSelectFeature,
+  onFeatureMenu,
   onHover,
   hoveredId,
   primers = [],
@@ -219,6 +222,11 @@ export function LinearMap({
             key={f.id}
             style={{ cursor: "pointer" }}
             onClick={() => onSelectFeature(f)}
+            onContextMenu={(e) => {
+              if (!onFeatureMenu) return;
+              e.preventDefault();
+              onFeatureMenu(e.clientX, e.clientY, f);
+            }}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
             opacity={hoveredId && !active ? 0.6 : 1}

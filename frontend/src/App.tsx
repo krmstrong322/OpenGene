@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { ChromatogramPane } from "./components/ChromatogramPane";
 import { CircularMap } from "./components/CircularMap";
-import { EditPanel } from "./components/EditPanel";
+import { ContextMenu, type MenuEntry } from "./components/ContextMenu";
+import { EditPanel, type InspectorCommand } from "./components/EditPanel";
 import { ImageMenu } from "./components/ImageMenu";
 import { LinearMap } from "./components/LinearMap";
 import { NewRecordDialog } from "./components/NewRecordDialog";
@@ -12,11 +13,16 @@ import { Splitter } from "./components/Splitter";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
 import { basePos, boundaryLabel, selectionRange } from "./lib/coords";
+import { cleanPaste, copyText, editAtSelection, editErrorMessage, pasteProblem } from "./lib/edits";
 import { useLayout } from "./lib/layout";
-import { normalizeSpan, selectionLength } from "./lib/selection";
+import { normalizeSpan, selectionLength, selectionSegments } from "./lib/selection";
+import { reverseComplement } from "./lib/translate";
 import { useTheme } from "./lib/theme";
 import type { CutSite, Feature, FramePolicy, ORF, PlasmidRecord, Selection } from "./lib/types";
 import { TYPE_COLORS } from "./lib/types";
+
+const MOD =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 
 // Narrowest workspace (px) that still fits a map and the sequence side by side.
 const SIDE_BY_SIDE_MIN = 720;
@@ -226,6 +232,114 @@ export default function App() {
 
   const openFilePicker = () => fileRef.current?.click();
 
+  // ----- right-click menu (sequence view and both maps) -----
+  const [menu, setMenu] = useState<{ x: number; y: number; featureId?: string } | null>(null);
+  const [command, setCommand] = useState<InspectorCommand | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const openMenu = useCallback(
+    (x: number, y: number, f?: Feature) => {
+      if (f) selectFeature(f);
+      setMenu({ x, y, featureId: f?.id });
+    },
+    [selectFeature],
+  );
+
+  // Replace the selection with `bases` (insert at a cursor; "" deletes).
+  const editSelection = async (bases: string) => {
+    if (!record || !selection) return;
+    try {
+      const res = await editAtSelection(record, selection, bases, framePolicy);
+      setRecord(res.record);
+      setSelection({
+        start: res.at,
+        end: bases ? Math.min(res.record.length, res.at + res.inserted) : res.at,
+      });
+      if (res.warnings.length) setError(res.warnings.join("\n"));
+    } catch (e) {
+      setError(editErrorMessage(e));
+    }
+  };
+
+  const pasteFromClipboard = async () => {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      setError("The clipboard can't be read from this menu. Press Ctrl/⌘+V in the sequence instead.");
+      return;
+    }
+    const bases = cleanPaste(text);
+    if (!bases) return;
+    const problem = pasteProblem(bases);
+    if (problem) setError(problem);
+    else await editSelection(bases);
+  };
+
+  const menuEntries = (): MenuEntry[] => {
+    if (!record || !menu) return [];
+    const n = record.length;
+    const feature = menu.featureId ? record.features.find((f) => f.id === menu.featureId) : undefined;
+    const bases = selectionSegments(selection, n)
+      .map(([a, b]) => record.sequence.slice(a, b))
+      .join("");
+    const hasRange = bases.length > 0;
+    const out: MenuEntry[] = [];
+    if (feature) {
+      out.push(
+        { kind: "heading", label: feature.name },
+        { label: "Edit feature…", run: () => setCommand({ kind: "edit-feature", featureId: feature.id }) },
+        {
+          label: "Remove feature",
+          run: () =>
+            void api
+              .deleteFeature(record.id, feature.id)
+              .then(setRecord)
+              .catch((e) => setError((e as Error).message)),
+        },
+        { kind: "sep" },
+      );
+    }
+    out.push(
+      { label: "Copy", hint: `${MOD}C`, disabled: !hasRange, run: () => void copyText(bases) },
+      {
+        label: "Copy reverse complement",
+        disabled: !hasRange,
+        run: () => void copyText(reverseComplement(bases)),
+      },
+      {
+        label: hasRange ? "Paste over selection" : "Paste",
+        hint: `${MOD}V`,
+        disabled: !selection,
+        run: () => void pasteFromClipboard(),
+      },
+      {
+        label: "Delete bases",
+        hint: "Del",
+        danger: true,
+        disabled: !hasRange,
+        run: () => void editSelection(""),
+      },
+      { kind: "sep" },
+    );
+    if (!feature) {
+      out.push({
+        label: "New feature from selection…",
+        disabled: !hasRange,
+        run: () => setCommand({ kind: "new-feature" }),
+      });
+    }
+    out.push(
+      {
+        label: "Design primers for selection",
+        disabled: !hasRange,
+        run: () => setCommand({ kind: "design-primers" }),
+      },
+      { kind: "sep" },
+      { label: "Select all", hint: `${MOD}A`, run: () => setSelection({ start: 0, end: n }) },
+    );
+    return out;
+  };
+
   const handleImport = async (file: File) => {
     try {
       const r = await api.importFile(file);
@@ -362,6 +476,7 @@ export default function App() {
                           primers={showPrimers ? displayPrimers : []}
                           orfs={showOrfs ? orfs : []}
                           onSelectRange={selectRange}
+                          onFeatureMenu={openMenu}
                         />
                       </div>
                       {(legend.length > 0 || cutSites.length > 0) && (
@@ -405,6 +520,7 @@ export default function App() {
                           primers={showPrimers ? displayPrimers : []}
                           orfs={showOrfs ? orfs : []}
                           onSelectRange={selectRange}
+                          onFeatureMenu={openMenu}
                         />
                       </div>
                     </section>
@@ -431,6 +547,7 @@ export default function App() {
                     framePolicy={framePolicy}
                     onRecordChange={setRecord}
                     onError={setError}
+                    onMenu={openMenu}
                   />
               )}
             </div>
@@ -448,6 +565,8 @@ export default function App() {
             setEnzymeInput={setEnzymeInput}
             framePolicy={framePolicy}
             setFramePolicy={setFramePolicy}
+            command={command}
+            onCommandDone={() => setCommand(null)}
           />
         </main>
       )}
@@ -464,6 +583,10 @@ export default function App() {
           }}
           onError={setError}
         />
+      )}
+
+      {menu && record && (
+        <ContextMenu x={menu.x} y={menu.y} entries={menuEntries()} onClose={closeMenu} />
       )}
 
       {error && (

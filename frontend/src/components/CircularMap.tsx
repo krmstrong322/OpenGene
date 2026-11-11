@@ -17,6 +17,8 @@ interface Props {
   cutSites: CutSite[];
   selection: Selection | null;
   onSelectFeature: (f: Feature) => void;
+  /** Open the right-click menu for a feature. */
+  onFeatureMenu?: (x: number, y: number, f: Feature) => void;
   onHover: (featureId: string | null) => void;
   hoveredId: string | null;
   primers?: Primer[];
@@ -85,6 +87,7 @@ export function CircularMap({
   cutSites,
   selection,
   onSelectFeature,
+  onFeatureMenu,
   onHover,
   hoveredId,
   primers = [],
@@ -289,6 +292,11 @@ export function CircularMap({
             opacity={hoveredId && !isActive ? 0.6 : 1}
             style={{ cursor: "pointer" }}
             onClick={() => onSelectFeature(f)}
+            onContextMenu={(e) => {
+              if (!onFeatureMenu) return;
+              e.preventDefault();
+              onFeatureMenu(e.clientX, e.clientY, f);
+            }}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
           >
@@ -379,6 +387,11 @@ export function CircularMap({
             key={l.key}
             style={{ cursor: "pointer" }}
             onClick={() => onSelectFeature(f)}
+            onContextMenu={(e) => {
+              if (!onFeatureMenu) return;
+              e.preventDefault();
+              onFeatureMenu(e.clientX, e.clientY, f);
+            }}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
           >

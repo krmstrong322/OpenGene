@@ -701,6 +701,33 @@ button.tag:disabled {
 .menu-item .check-mark {
   margin-left: auto;
 }
+.context-menu {
+  position: fixed;
+  right: auto;
+  z-index: 60;
+  min-width: 220px;
+  max-width: 320px;
+}
+.context-menu .menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line);
+}
+.menu-item:disabled {
+  color: var(--faint);
+  cursor: default;
+  background: none;
+}
+.menu-item.danger:not(:disabled):not(:hover):not(:focus-visible) {
+  color: var(--danger);
+}
 .menu-label {
   padding: 4px 12px;
   font-size: 11px;
@@ -775,6 +802,7 @@ button.tag:disabled {
   min-width: 0;
   padding-top: 2px;
   overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 
 /* Status bar */

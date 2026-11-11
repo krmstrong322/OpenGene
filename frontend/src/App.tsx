@@ -13,6 +13,7 @@ import { Splitter } from "./components/Splitter";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
 import { basePos, boundaryLabel, selectionRange } from "./lib/coords";
+import { desktop, textFieldFocused } from "./lib/desktop";
 import { cleanPaste, copyText, editAtSelection, editErrorMessage, pasteProblem } from "./lib/edits";
 import { useLayout } from "./lib/layout";
 import { readPref, writePref } from "./lib/prefs";
@@ -164,6 +165,22 @@ export default function App() {
     }
   }, [record]);
 
+  // One undo/redo request can arrive twice in the desktop app: from this
+  // window's own shortcut handling and from the Edit menu's key equivalent
+  // (always on macOS). Whichever comes second, from the other source, within a
+  // moment of the first is the same key press and is dropped.
+  const lastStep = useRef({ at: 0, source: "" });
+  const historyStep = useCallback(
+    (direction: "undo" | "redo", source: "key" | "menu") => {
+      const now = performance.now();
+      const echo = lastStep.current.source !== source && now - lastStep.current.at < 250;
+      if (echo) return;
+      lastStep.current = { at: now, source };
+      void (direction === "undo" ? undo() : redo());
+    },
+    [undo, redo],
+  );
+
   // Cmd/Ctrl+Z to undo, Cmd/Ctrl+Shift+Z or Ctrl+Y to redo — but not while a
   // text field is focused, where the browser's own undo should win.
   useEffect(() => {
@@ -175,15 +192,15 @@ export default function App() {
       const key = e.key.toLowerCase();
       if (key === "z" && !e.shiftKey) {
         e.preventDefault();
-        void undo();
+        historyStep("undo", "key");
       } else if ((key === "z" && e.shiftKey) || key === "y") {
         e.preventDefault();
-        void redo();
+        historyStep("redo", "key");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo]);
+  }, [historyStep]);
 
   const selectFeature = useCallback(
     (f: Feature) => {
@@ -505,6 +522,67 @@ export default function App() {
       setError((e as Error).message);
     }
   };
+
+  // ----- desktop app: native menu commands and files handed to the app -----
+  const runCommand = (command: string) => {
+    const [name, arg] = command.split(":");
+    switch (name) {
+      case "new":
+        setShowNew(true);
+        break;
+      case "library":
+        showLibrary();
+        break;
+      case "export":
+        if (record) {
+          const a = document.createElement("a");
+          a.href = api.exportUrl(record.id, arg);
+          a.download = "";
+          a.click();
+        }
+        break;
+      case "undo":
+      case "redo":
+        if (textFieldFocused()) desktop?.textRole(name);
+        else historyStep(name, "menu");
+        break;
+      case "select-all":
+        if (textFieldFocused()) desktop?.textRole("selectAll");
+        else if (record) setSelection({ start: 0, end: record.length });
+        break;
+      case "find":
+        // The find bar listens for its shortcut; a menu click is the same request.
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true }));
+        break;
+      case "view":
+        if (arg === "map" || arg === "linear" || arg === "sequence") toggleView(arg);
+        break;
+      case "theme":
+        if (arg === "system" || arg === "light" || arg === "dark") setTheme(arg);
+        break;
+    }
+  };
+  // The subscription is made once; it always calls the latest handlers.
+  const commandRef = useRef(runCommand);
+  commandRef.current = runCommand;
+  const importRef = useRef(importFiles);
+  importRef.current = importFiles;
+  useEffect(() => {
+    if (!desktop) return;
+    const offCommand = desktop.onCommand((c) => commandRef.current(c));
+    const offFiles = desktop.onOpenFiles((files) => {
+      // Copy into a fresh buffer: what crosses the bridge may be a view.
+      void importRef.current(files.map((f) => new File([new Uint8Array(f.data)], f.name)));
+    });
+    desktop.ready();
+    return () => {
+      offCommand();
+      offFiles();
+    };
+  }, []);
+  useEffect(() => {
+    desktop?.setMenuState({ hasRecord });
+  }, [hasRecord]);
 
   // Feature types present in the record, for the map legend.
   const legend = useMemo(() => {

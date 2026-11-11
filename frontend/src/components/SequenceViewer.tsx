@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ClipboardEvent as ReactClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -13,6 +12,7 @@ import { Copy, Search } from "lucide-react";
 import { api } from "../lib/api";
 import { FindBar } from "./FindBar";
 import { boundaryLabel, selectionRange } from "../lib/coords";
+import { textFieldFocused } from "../lib/desktop";
 import {
   cleanPaste,
   copyText,
@@ -656,9 +656,9 @@ function SequenceViewer({
     })();
   };
 
-  const onPaste = (e: ReactClipboardEvent) => {
+  const onPaste = (e: ClipboardEvent) => {
     e.preventDefault();
-    const bases = cleanPaste(e.clipboardData.getData("text"));
+    const bases = cleanPaste(e.clipboardData?.getData("text") ?? "");
     if (!bases) return;
     const problem = pasteProblem(bases);
     if (problem) {
@@ -671,6 +671,53 @@ function SequenceViewer({
     }
     void edit(selection, bases, true);
   };
+
+  // Copy / cut from the browser or the desktop app's Edit menu (the keyboard
+  // shortcut for copy is handled in onKeyDown). Cut also deletes the bases.
+  const cutting = useRef(false);
+  const onCopy = (e: ClipboardEvent) => {
+    const text = selectionSegments(selection, n)
+      .map(([a, b]) => seq.slice(a, b))
+      .join("");
+    if (!text) return;
+    e.preventDefault();
+    e.clipboardData?.setData("text/plain", text);
+    // A cut can arrive twice (shortcut and menu); delete only once.
+    if (e.type === "cut" && selection && !typing.current && !cutting.current) {
+      cutting.current = true;
+      void edit(selection, "", false).finally(() => (cutting.current = false));
+    }
+  };
+
+  // Clipboard events are listened for on the document and acted on while the
+  // view has the focus: the view isn't a text field, so the browser may aim
+  // them at the page body instead of at it. Cancelling the before* events
+  // tells the browser that Cut/Copy/Paste are available here, which is what
+  // makes the desktop app's Edit menu (and its shortcuts) reach the view.
+  const clipboardRef = useRef({ onCopy, onPaste });
+  clipboardRef.current = { onCopy, onPaste };
+  useEffect(() => {
+    const focused = () => !!scrollerRef.current && document.activeElement === scrollerRef.current;
+    // Copy also works while the focus is on a button or nothing at all (after
+    // Select All from the menu, say) — anywhere but a text field, which has
+    // its own text to copy. Changing the sequence needs the view focused.
+    const canCopy = () => focused() || !textFieldFocused();
+    const allowCopy = (e: Event) => canCopy() && e.preventDefault();
+    const allowEdit = (e: Event) => focused() && e.preventDefault();
+    const copy = (e: Event) => canCopy() && clipboardRef.current.onCopy(e as ClipboardEvent);
+    const cut = (e: Event) => focused() && clipboardRef.current.onCopy(e as ClipboardEvent);
+    const paste = (e: Event) => focused() && clipboardRef.current.onPaste(e as ClipboardEvent);
+    const handlers: [string, (e: Event) => void][] = [
+      ["beforecopy", allowCopy],
+      ["beforecut", allowEdit],
+      ["beforepaste", allowEdit],
+      ["copy", copy],
+      ["cut", cut],
+      ["paste", paste],
+    ];
+    handlers.forEach(([name, h]) => document.addEventListener(name, h));
+    return () => handlers.forEach(([name, h]) => document.removeEventListener(name, h));
+  }, []);
 
   // Right-click: keep a selection that was clicked inside, otherwise move the
   // cursor to the click first (as a text editor does), then open the menu.
@@ -794,7 +841,6 @@ function SequenceViewer({
       aria-readonly="false"
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       onKeyDown={onKeyDown}
-      onPaste={onPaste}
       onContextMenu={onContextMenu}
     >
       <span ref={probeRef} className="seq-probe" aria-hidden="true">

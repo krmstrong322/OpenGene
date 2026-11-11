@@ -20,6 +20,32 @@ extraResources:
   - from: backend
     to: backend
 
+# Sequence files OpenGene offers to open ("Open With", and double-click where
+# it is the chosen app). On macOS it registers as an alternate handler, so it
+# never takes a file type away from another app. Keep the extensions in step
+# with IMPORT_EXTENSIONS in electron/main.js.
+fileAssociations:
+  - ext: [gb, gbk, genbank]
+    name: GenBank Sequence
+    role: Editor
+    rank: Alternate
+  - ext: [fasta, fa, fna]
+    name: FASTA Sequence
+    role: Editor
+    rank: Alternate
+  - ext: embl
+    name: EMBL Sequence
+    role: Editor
+    rank: Alternate
+  - ext: dna
+    name: SnapGene DNA File
+    role: Editor
+    rank: Alternate
+  - ext: [ab1, abi, scf]
+    name: Sanger Sequencing Trace
+    role: Viewer
+    rank: Alternate
+
 # ---------------------------------------------------------------------------
 # macOS — unsigned for now. To enable signing + notarization later:
 #   1. set env CSC_LINK (base64 .p12) and CSC_KEY_PASSWORD in CI secrets

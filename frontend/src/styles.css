@@ -1082,9 +1082,43 @@ button.tag:disabled {
   min-height: 0;
   display: flex;
 }
-.map-fit > .map-svg {
+.map-fit > .map-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.map-fit .map-svg {
   width: 100%;
   height: 100%;
+}
+
+/* A map and the zoom buttons floating in its corner */
+.map-wrap {
+  position: relative;
+}
+.map-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.map-scroll > .map-svg {
+  margin: 0;
+}
+.map-zoom {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+.map-zoom-level {
+  min-width: 40px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
 }
 .linear-pane {
   flex: none;
@@ -1792,7 +1826,7 @@ button.tag:disabled {
   .splitter {
     display: none;
   }
-  .map-fit > .map-svg {
+  .map-fit .map-svg {
     height: auto;
     max-height: 62vh;
   }

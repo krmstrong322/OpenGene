@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ZoomControls, wheelZoomFactor } from "./ZoomControls";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { METHYL_LABELS, TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
 import { boundaryLabel, rangeLabel, tickLabel } from "../lib/coords";
@@ -48,6 +49,8 @@ const R_LABEL = R_BACKBONE + 66;
 const LABEL_GAP = 15; // min vertical spacing between labels on one side
 const LABEL_MAX = 24; // characters before a label is truncated
 const TEXT_BOOST_MAX = 1.45;
+const ZOOM_MAX = 8;
+const MAX_CUT_LABELS = 40;
 const MAX_LABELS = 64; // above this many features, only the active one is labelled
 
 // Outer radius of feature ring `ring` (0 = centred on the backbone).
@@ -99,8 +102,86 @@ export function CircularMap({
   // enlarged (up to TEXT_BOOST_MAX) to stay readable, and labels are spaced
   // and truncated to match.
   const [svgRef, size] = useSize<SVGSVGElement>();
-  const drawn = size ? Math.min(size.width / W, size.height / H) : 1;
-  const k = drawn > 0 ? Math.min(TEXT_BOOST_MAX, Math.max(1, 1 / drawn)) : 1;
+
+  // Zoom and pan: the view is a window onto the drawing, `zoom` times
+  // magnified and centred on (cx, cy) in drawing units.
+  const [view, setView] = useState({ zoom: 1, cx: CX, cy: CY });
+  useEffect(() => setView({ zoom: 1, cx: CX, cy: CY }), [record.id]);
+  const vbW = W / view.zoom;
+  const vbH = H / view.zoom;
+  const vbX = view.cx - vbW / 2;
+  const vbY = view.cy - vbH / 2;
+
+  const fit = size ? Math.min(size.width / W, size.height / H) : 1;
+  const drawn = fit * view.zoom;
+  // Text is drawn at a readable size whatever the scale: enlarged when the
+  // pane is small, and held at its unzoomed size on screen when zoomed in, so
+  // zooming spreads labels apart instead of just magnifying them.
+  const k = drawn > 0 ? Math.min(TEXT_BOOST_MAX, Math.max(1 / view.zoom, 1 / drawn)) : 1;
+
+  // Zoom by `factor`, keeping the drawing point under (clientX, clientY) —
+  // or the middle of the view — where it is.
+  const zoomBy = (factor: number, clientX?: number, clientY?: number) => {
+    setView((v) => {
+      const zoom = Math.min(ZOOM_MAX, Math.max(1, v.zoom * factor));
+      if (zoom === v.zoom) return v;
+      let px = v.cx;
+      let py = v.cy;
+      const rect = svgRef.current?.getBoundingClientRect();
+      if (rect && clientX !== undefined && clientY !== undefined && rect.width && rect.height) {
+        const s = Math.min(rect.width / (W / v.zoom), rect.height / (H / v.zoom));
+        px = v.cx + (clientX - (rect.left + rect.width / 2)) / s;
+        py = v.cy + (clientY - (rect.top + rect.height / 2)) / s;
+      }
+      // The point stays put: its offset from the centre shrinks by the zoom ratio.
+      const r = v.zoom / zoom;
+      return clampView({ zoom, cx: px - (px - v.cx) * r, cy: py - (py - v.cy) * r });
+    });
+  };
+  const zoomRef = useRef(zoomBy);
+  zoomRef.current = zoomBy;
+  // Ctrl/⌘ + wheel, which is also how a trackpad pinch arrives. Registered
+  // natively: React's wheel listener is passive and can't stop the page zoom.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomRef.current(wheelZoomFactor(e), e.clientX, e.clientY);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [svgRef]);
+
+  // Drag to pan when zoomed in. A drag must not also count as a click on
+  // whatever feature it started or ended on.
+  const drag = useRef<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null);
+  const [panning, setPanning] = useState(false);
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.button !== 0 || view.zoom <= 1) return;
+    drag.current = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy, moved: false };
+  };
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 4) return;
+    if (!d.moved) {
+      d.moved = true;
+      setPanning(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    setView((v) => clampView({ zoom: v.zoom, cx: d.cx - dx / drawn, cy: d.cy - dy / drawn }));
+  };
+  const endDrag = () => {
+    // Keep `moved` until the click that follows the release has been swallowed.
+    const d = drag.current;
+    if (d?.moved) window.setTimeout(() => (drag.current = null), 0);
+    else drag.current = null;
+    setPanning(false);
+  };
   const ringOf = useMemo(
     () => assignRings(record.features, length),
     [record.features, length],
@@ -149,11 +230,13 @@ export function CircularMap({
         ...labelled.map((f) => ({
           key: f.id,
           feature: f,
-          text: truncate(f.name, Math.floor(LABEL_MAX / k)),
+          text: truncate(f.name, Math.min(48, Math.floor(LABEL_MAX / k))),
           angle: baseToAngle(midBase(f, length), length),
           anchorR: R_MARK,
         })),
-        ...cutSites.map((c, i) => ({
+        // A big enzyme set would bury the map in names; past the limit the
+        // sites keep their marks (and tooltips) and the linear view names them.
+        ...(cutSites.length > MAX_CUT_LABELS ? [] : cutSites).map((c, i) => ({
           key: `cut-${i}`,
           text: c.enzyme,
           angle: baseToAngle(c.position, length),
@@ -164,14 +247,26 @@ export function CircularMap({
   );
 
   return (
+    <div className="map-wrap">
     <svg
       ref={svgRef}
       className="map-svg"
-      viewBox={`0 0 ${W} ${H}`}
+      viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
       width="100%"
-      style={{ userSelect: "none" }}
+      style={{
+        userSelect: "none",
+        cursor: panning ? "grabbing" : view.zoom > 1 ? "grab" : undefined,
+        touchAction: view.zoom > 1 ? "none" : undefined,
+      }}
       role="img"
       aria-label={`Circular map of ${record.name}`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onClickCapture={(e) => {
+        if (drag.current?.moved) e.stopPropagation();
+      }}
     >
       {/* backbone */}
       <circle
@@ -409,7 +504,27 @@ export function CircularMap({
         {length.toLocaleString()} bp
       </text>
     </svg>
+    <ZoomControls
+      zoom={view.zoom}
+      min={1}
+      max={ZOOM_MAX}
+      onZoom={(f) => zoomBy(f)}
+      onReset={() => setView({ zoom: 1, cx: CX, cy: CY })}
+      label="circular map"
+    />
+    </div>
   );
+}
+
+// Keep the view inside the drawing.
+function clampView(v: { zoom: number; cx: number; cy: number }) {
+  const hw = W / v.zoom / 2;
+  const hh = H / v.zoom / 2;
+  return {
+    zoom: v.zoom,
+    cx: Math.min(W - hw, Math.max(hw, v.cx)),
+    cy: Math.min(H - hh, Math.max(hh, v.cy)),
+  };
 }
 
 function niceStep(length: number): number {

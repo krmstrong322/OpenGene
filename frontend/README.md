@@ -57,6 +57,21 @@ view highlights it in the others and scrolls the sequence to it. The maps render
 directional arrows, stacked lanes/rings for overlapping features, labelled
 features with leader lines, restriction cut sites, and origin-wrapping features.
 
+**Zoom and pan.** Both maps zoom with Ctrl/⌘ + scroll (which is also a
+trackpad pinch) about the pointer, or with the − / + / fit buttons in the map's
+corner, and pan by dragging; a drag never counts as a click on a feature. The
+linear map zooms up to 12 px per base, scrolls sideways, re-spaces its ruler
+for the zoom, and brings a selection made elsewhere into view. The circular
+map magnifies the drawing up to 8× while holding text at its normal size, so
+zooming separates crowded labels. Zoom resets when another record is opened.
+A map image is exported as shown (the linear map in full at its current zoom,
+the circular map's visible area).
+
+**Map labels.** On the linear map enzyme names sit above the axis, in as many
+rows as they need (up to eight; a site that still can't be named keeps its
+mark and tooltip), and the ruler's numbers sit below it, so the two can't
+collide. The circular map names cut sites only up to 40 of them.
+
 **Records.** The open record's name in the title bar is editable in place;
 the menu beside it changes topology (circular ↔ linear) and duplicates the
 record. Rename and topology changes are undoable. Files dropped anywhere on the
@@ -113,6 +128,7 @@ desktop app), and icons come from `lucide-react`.
 | `components/NewRecordDialog.tsx` | Modal for creating a record from pasted DNA |
 | `components/ContextMenu.tsx` | Right-click menu (keyboard-operable, stays on screen) |
 | `lib/edits.ts` | Type / paste / delete at the selection, via the engine |
+| `components/ZoomControls.tsx` | Zoom buttons shared by the two maps, and wheel-to-zoom scaling |
 | `components/Splitter.tsx` | Draggable, keyboard-operable divider between maps and sequence |
 | `lib/coords.ts` | 0-based internal spans ↔ 1-based positions shown to the user |
 | `lib/layout.ts` | Open views + divider position (persisted) |

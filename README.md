@@ -47,6 +47,14 @@ npm install
 npm run dev                            # http://localhost:5173
 ```
 
+Before opening a pull request, run what CI runs (`.github/workflows/ci.yml`):
+
+```bash
+cd backend  && pytest -q
+cd frontend && npm run check           # lint, type-check + build, unit tests
+cd frontend && npm run e2e             # end-to-end, in a browser
+```
+
 Open the app: the library starts with eight sample plasmids (pUC19, pBR322,
 pEGFP-N1, pGEX-4T-1 and others). They live in
 [`backend/opengene/data/samples/`](backend/opengene/data/samples/), which also

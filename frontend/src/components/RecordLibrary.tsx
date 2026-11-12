@@ -176,6 +176,7 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
                   <button
                     className="name-cell"
                     title={`Open ${r.name}`}
+                    aria-label={`Open ${r.name}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       void open(r.id);

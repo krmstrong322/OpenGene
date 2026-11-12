@@ -30,6 +30,25 @@ The library starts with the bundled sample plasmids (served by the backend; see
 any you've deleted. *pET-demo* is a small T7 · 6×His · TEV · EGFP · T7-terminator
 construct that exercises the maps, annotation, and sequence view.
 
+## Checks
+
+```bash
+npm run lint         # ESLint: TypeScript + React Hooks rules
+npm run build        # type-check + production build
+npm test             # unit and component tests (Vitest; src/**/*.test.ts[x])
+npm run check        # the three above, as CI's frontend job runs them
+npm run e2e          # end-to-end: the real UI against the real engine (Playwright)
+```
+
+`npm run e2e` starts the engine and the dev server itself (the backend must be
+installed: `pip install -e ../backend`), gives the engine a throwaway library,
+and drives a browser through the main flows in `e2e/`. Run
+`npx playwright install chromium` once if Playwright has no browser yet.
+Unit tests cover the logic in `src/lib` (coordinates, selection, edit
+helpers, sequence-view layout, map keyboard control); component tests cover the
+context menu, splitter, zoom controls and history tab. `.github/workflows/ci.yml`
+runs all of it, plus the backend suite, on every pull request.
+
 ## Layout
 
 ```
@@ -135,8 +154,11 @@ desktop app), and icons come from `lucide-react`.
 | `lib/geometry.ts` | Polar / SVG-arc math for the circular map (directional, wrap-aware) |
 | `components/CircularMap.tsx` | Circular plasmid map |
 | `components/LinearMap.tsx` | Linear feature track with lanes |
-| `components/SequenceViewer.tsx` | Colored sequence with click/shift-click selection |
-| `components/EditPanel.tsx` | Tabbed editing + analysis panel |
+| `components/SequencePane.tsx` | Sequence pane: toolbar, find bar, selection read-out |
+| `components/SequenceViewer.tsx` | The sequence view: drawing, selection, typing, clipboard |
+| `lib/seqLayout.ts` | What goes on each sequence line and how tall it is (pure) |
+| `components/EditPanel.tsx` | The inspector's tab strip; hands menu commands to the tabs |
+| `components/inspector/*` | One file per inspector tab (Edit, Features, ORFs, Enzymes, Primers, History) |
 | `components/Toolbar.tsx` | Title bar: breadcrumb, undo/redo, import/export, theme |
 | `components/RecordLibrary.tsx` | Start screen: sortable, filterable table of saved plasmids |
 | `components/NewRecordDialog.tsx` | Modal for creating a record from pasted DNA |

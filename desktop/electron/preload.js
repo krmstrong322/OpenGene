@@ -4,16 +4,24 @@
 //       api.ts reads. It is passed from the main process via --api-base=...
 //       in webPreferences.additionalArguments (main doesn't know the port
 //       until the backend is up, so it can't be baked into the build).
+//   window.__OPENGENE_API_TOKEN__  this launch's access token for the engine,
+//       passed the same way.
 //
 //   window.opengeneDesktop  menu commands and files handed to the app. The
 //       UI gets plain data and callbacks only — no Node or Electron objects.
 
 const { contextBridge, ipcRenderer } = require("electron");
 
-const arg = process.argv.find((a) => a.startsWith("--api-base="));
-const apiBase = arg ? arg.slice("--api-base=".length) : "";
+const argument = (name) => {
+  const prefix = `--${name}=`;
+  const found = process.argv.find((a) => a.startsWith(prefix));
+  return found ? found.slice(prefix.length) : "";
+};
 
-contextBridge.exposeInMainWorld("__OPENGENE_API_BASE__", apiBase);
+contextBridge.exposeInMainWorld("__OPENGENE_API_BASE__", argument("api-base"));
+// The secret the engine was started with for this launch; api.ts sends it
+// with every request, and the engine refuses requests without it.
+contextBridge.exposeInMainWorld("__OPENGENE_API_TOKEN__", argument("api-token"));
 
 function subscribe(channel, callback) {
   const handler = (_event, payload) => callback(payload);

@@ -14,7 +14,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useState } from "react";
-import { api } from "../lib/api";
+import { EXPORT_FORMATS } from "../lib/exports";
 import { Menu } from "./Menu";
 import type { ViewId } from "../lib/layout";
 import type { ThemePref } from "../lib/theme";
@@ -28,6 +28,7 @@ interface Props {
   onRedo: () => void;
   onNew: () => void;
   onImport: () => void;
+  onExport: (format: string) => void;
   onRename: (name: string) => void;
   onSetCircular: (circular: boolean) => void;
   onDuplicate: () => void;
@@ -36,14 +37,6 @@ interface Props {
   theme: ThemePref;
   onThemeChange: (t: ThemePref) => void;
 }
-
-// [API format, menu label, file extension]
-const EXPORT_FORMATS: [string, string, string][] = [
-  ["snapgene", "SnapGene", "dna"],
-  ["genbank", "GenBank", "gb"],
-  ["fasta", "FASTA", "fasta"],
-  ["embl", "EMBL", "embl"],
-];
 
 const VIEWS: { id: ViewId; label: string; Icon: typeof Circle }[] = [
   { id: "map", label: "Map", Icon: Circle },
@@ -61,6 +54,7 @@ export function Toolbar({
   onRedo,
   onNew,
   onImport,
+  onExport,
   onRename,
   onSetCircular,
   onDuplicate,
@@ -225,14 +219,9 @@ export function Toolbar({
             title="Export"
           >
             {EXPORT_FORMATS.map(([fmt, label, ext]) => (
-              <a
-                key={fmt}
-                className="menu-item"
-                href={api.exportUrl(record.id, fmt)}
-                download={`${record.name}.${ext}`}
-              >
+              <button key={fmt} className="menu-item" onClick={() => onExport(fmt)}>
                 {label} <span className="menu-sub">.{ext}</span>
-              </a>
+              </button>
             ))}
           </Menu>
         )}

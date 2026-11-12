@@ -16,7 +16,7 @@ def _clear_store():
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost")
 
 
 def _create(client, seq="ATGGCAGCTACGTACGTAGC", circular=True):

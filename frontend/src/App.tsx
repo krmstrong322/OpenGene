@@ -8,7 +8,7 @@ import { ImageMenu } from "./components/ImageMenu";
 import { LinearMap } from "./components/LinearMap";
 import { NewRecordDialog } from "./components/NewRecordDialog";
 import { RecordLibrary } from "./components/RecordLibrary";
-import { SequencePane } from "./components/SequenceViewer";
+import { SequencePane } from "./components/SequencePane";
 import { Splitter } from "./components/Splitter";
 import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
@@ -178,7 +178,7 @@ export default function App() {
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [record]);
+  }, [record, setError]);
 
   const redo = useCallback(async () => {
     if (!record?.canRedo) return;
@@ -189,7 +189,7 @@ export default function App() {
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [record]);
+  }, [record, setError]);
 
   // One undo/redo request can arrive twice in the desktop app: from this
   // window's own shortcut handling and from the Edit menu's key equivalent
@@ -289,7 +289,7 @@ export default function App() {
         setError((e as Error).message);
       }
     },
-    [record],
+    [record, setError],
   );
 
   // Recompute cut sites whenever the sequence changes.

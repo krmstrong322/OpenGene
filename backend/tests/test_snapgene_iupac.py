@@ -143,7 +143,7 @@ def test_dna_import_keeps_feature_colors_but_not_white():
 @pytest.fixture
 def client():
     store.clear()
-    yield TestClient(app)
+    yield TestClient(app, base_url="http://localhost")
     store.clear()
 
 

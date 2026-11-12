@@ -107,6 +107,31 @@ remembered in a `meta` table, so deleted samples stay deleted;
 auto-annotated from the feature library, with parts the library lacks carried
 over from the file as listed in `samples.json`.
 
+## Who can reach the engine
+
+The engine is a local HTTP server, and browsers will happily send requests to
+`127.0.0.1` on behalf of any web page. `opengene/security.py` makes sure only
+OpenGene's own UI gets an answer:
+
+| Check | What it stops |
+|-------|---------------|
+| **Host** must be `localhost`, `127.0.0.1` or `::1` | DNS rebinding (an attacker's domain re-pointed at this computer) |
+| **Origin**, when a page sends one, must be a page served from this computer | Another site reading the library, or firing a blind form post at it |
+| **Token** (`X-OpenGene-Token`), when `OPENGENE_API_TOKEN` is set | Anything that isn't the desktop window, which is the only holder of the per-launch token |
+| **Size**: requests over 256 MB are refused (413) | Making the engine buffer an arbitrarily large upload |
+
+`/health` stays open so the desktop shell can tell when the engine is up.
+
+| Environment variable | Purpose |
+|----------------------|---------|
+| `OPENGENE_API_TOKEN` | Require this value in the `X-OpenGene-Token` header. The desktop app sets a fresh random one on every launch. |
+| `OPENGENE_ALLOWED_ORIGINS` | Extra allowed origins, comma-separated. The desktop app sets `null` (the origin of a UI loaded from disk). |
+| `OPENGENE_ALLOWED_HOSTS` | Extra allowed `Host` names, comma-separated. |
+
+The engine has no user accounts. It is built to serve one person on one
+computer; don't expose it on a network (`--host 0.0.0.0`) without putting your
+own authentication in front of it.
+
 ## Scope notes
 
 - Phase 2 (AI intent parsing / function-calling layer) is intentionally not in

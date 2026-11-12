@@ -16,31 +16,37 @@ import type {
 // In the browser / dev server the Vite proxy serves the API under /api.
 // In the Electron desktop shell there is no proxy, so the preload script
 // injects the backend's absolute origin (http://127.0.0.1:<port>) as
-// window.__OPENGENE_API_BASE__.
+// window.__OPENGENE_API_BASE__, together with the access token the engine was
+// started with for this launch (window.__OPENGENE_API_TOKEN__). The engine
+// refuses requests without it, so nothing else on the computer — a web page
+// in the user's browser, say — can reach the library.
 declare global {
   interface Window {
     __OPENGENE_API_BASE__?: string;
+    __OPENGENE_API_TOKEN__?: string;
   }
 }
 
 const BASE =
   (typeof window !== "undefined" && window.__OPENGENE_API_BASE__) || "/api";
+const TOKEN = (typeof window !== "undefined" && window.__OPENGENE_API_TOKEN__) || "";
+
+// Headers every request carries.
+function auth(extra: Record<string, string> = {}): Record<string, string> {
+  return TOKEN ? { ...extra, "X-OpenGene-Token": TOKEN } : extra;
+}
+
+async function failure(res: Response, fallback: string): Promise<Error> {
+  const body = await res.json().catch(() => null);
+  return new Error(body?.detail ?? (res.statusText || fallback));
+}
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: auth({ "Content-Type": "application/json" }),
     ...init,
   });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
-    } catch {
-      /* ignore */
-    }
-    throw new Error(detail);
-  }
+  if (!res.ok) throw await failure(res, "request failed");
   const text = await res.text();
   return (text ? JSON.parse(text) : null) as T;
 }
@@ -72,16 +78,21 @@ export const api = {
     form.append("file", file);
     const res = await fetch(`${BASE}/records/import`, {
       method: "POST",
+      headers: auth(),
       body: form,
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(body.detail ?? "import failed");
-    }
+    if (!res.ok) throw await failure(res, "import failed");
     return res.json();
   },
 
-  exportUrl: (id: string, fmt: string) => `${BASE}/records/${id}/export?fmt=${fmt}`,
+  // The record written out in `fmt` (see lib/exports.ts for saving it).
+  exportFile: async (id: string, fmt: string): Promise<Blob> => {
+    const res = await fetch(`${BASE}/records/${id}/export?fmt=${encodeURIComponent(fmt)}`, {
+      headers: auth(),
+    });
+    if (!res.ok) throw await failure(res, "export failed");
+    return res.blob();
+  },
 
   insert: (id: string, position: number, sequence: string, framePolicy: FramePolicy = "reject") =>
     req<PlasmidRecord>(`/records/${id}/insert`, {

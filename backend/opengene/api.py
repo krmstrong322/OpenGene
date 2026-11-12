@@ -16,12 +16,12 @@ from typing import AsyncIterator, Iterator, Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from . import __version__
 from . import samples as samples_mod
+from . import security
 from .core import analysis as analysis_mod
 from .core import annotate as annotate_mod
 from .core import primers as primers_mod
@@ -48,11 +48,17 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="OpenGene API", version=__version__, lifespan=_lifespan)
 
+# Who may reach the engine is decided in opengene.security: only this
+# computer's own pages (and the desktop window, which also presents a token).
+# CORS mirrors that list so those pages — and no others — can read responses.
+# Middleware added later wraps what was added earlier, so CORS is outermost and
+# its headers are on the guard's refusals too.
+app.add_middleware(security.GuardMiddleware)
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
+    security.LocalCORSMiddleware,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "X-OpenGene-Token"],
+    expose_headers=["Content-Disposition"],
 )
 
 

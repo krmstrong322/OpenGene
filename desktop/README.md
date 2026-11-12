@@ -59,6 +59,24 @@ npx electron . path/to/file.gb    # … opening a file
 xvfb-run -a npx electron --no-sandbox .   # headless Linux / CI / containers
 ```
 
+## Security
+
+- **The engine only answers this window.** Every launch generates a random
+  access token; the engine is started with it and refuses requests without it,
+  and the token is given only to the app's own window (through the preload
+  script). A web page open in the user's browser therefore cannot read or
+  change the plasmid library through the engine's local port. See "Who can
+  reach the engine" in `backend/README.md`.
+- **The window shows the bundled UI and nothing else.** It is sandboxed with
+  context isolation, cannot be navigated to another page, opens only
+  `http(s)` links (in the user's browser), and is granted no permissions
+  beyond the clipboard.
+- **Content Security Policy.** The built UI may load only its own scripts,
+  styles and fonts and connect only to the engine on this computer
+  (`frontend/vite.config.ts`).
+- **Keep Electron current.** It bundles Chromium; `npm audit` in this folder
+  flags an out-of-date version. Installers are still unsigned (see below).
+
 ## Getting installers (the normal path)
 
 You don't build these locally per-OS. Push a tag (or run the workflow manually)

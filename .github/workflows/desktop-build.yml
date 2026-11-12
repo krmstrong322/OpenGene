@@ -15,6 +15,10 @@ on:
     branches:
       - "release/**"
 
+# The build only reads the repository; it publishes nothing.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: ${{ matrix.name }}

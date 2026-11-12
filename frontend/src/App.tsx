@@ -15,6 +15,7 @@ import { api } from "./lib/api";
 import { basePos, boundaryLabel, selectionRange } from "./lib/coords";
 import { desktop, textFieldFocused } from "./lib/desktop";
 import { cleanPaste, copiedMessage, copyText, editAtSelection, editErrorMessage, pasteProblem } from "./lib/edits";
+import { exportRecord } from "./lib/exports";
 import { useLayout } from "./lib/layout";
 import { readPref, writePref } from "./lib/prefs";
 import { normalizeSpan, selectionLength, selectionSegments } from "./lib/selection";
@@ -546,6 +547,10 @@ export default function App() {
     }
   };
 
+  const exportAs = (format: string) => {
+    if (record) exportRecord(record, format).catch((e) => setError((e as Error).message));
+  };
+
   const duplicateOpenRecord = async () => {
     if (!record) return;
     try {
@@ -568,12 +573,7 @@ export default function App() {
         showLibrary();
         break;
       case "export":
-        if (record) {
-          const a = document.createElement("a");
-          a.href = api.exportUrl(record.id, arg);
-          a.download = "";
-          a.click();
-        }
+        exportAs(arg);
         break;
       case "undo":
       case "redo":
@@ -637,6 +637,7 @@ export default function App() {
         onRedo={redo}
         onNew={() => setShowNew(true)}
         onImport={openFilePicker}
+        onExport={exportAs}
         onRename={(name) => void updateRecord({ name })}
         onSetCircular={(isCircular) => void updateRecord({ isCircular })}
         onDuplicate={() => void duplicateOpenRecord()}

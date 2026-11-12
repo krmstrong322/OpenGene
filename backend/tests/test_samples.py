@@ -98,7 +98,7 @@ def test_restore_adds_only_missing_samples():
 
 def test_restore_endpoint_and_startup_seeding():
     store.clear()
-    client = TestClient(app)  # no lifespan: nothing seeded yet
+    client = TestClient(app, base_url="http://localhost")  # no lifespan: nothing seeded yet
     assert client.get("/records").json() == []
     r = client.post("/samples/restore")
     assert r.status_code == 200
@@ -110,6 +110,6 @@ def test_restore_endpoint_and_startup_seeding():
 def test_startup_seeds_a_fresh_store(monkeypatch):
     fresh = SessionStore()
     monkeypatch.setattr("opengene.api.store", fresh)
-    with TestClient(app):  # runs the lifespan
+    with TestClient(app, base_url="http://localhost"):  # runs the lifespan
         pass
     assert len(fresh.list()) == len(S.sample_specs())

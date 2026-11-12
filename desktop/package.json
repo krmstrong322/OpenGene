@@ -14,8 +14,8 @@
     "dist:linux": "npm run stage && electron-builder --publish never --linux"
   },
   "devDependencies": {
-    "electron": "33.2.1",
-    "electron-builder": "25.1.8"
+    "electron": "45.3.1",
+    "electron-builder": "26.18.0"
   },
   "repository": "github:krmstrong322/OpenGene"
 }

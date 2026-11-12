@@ -154,7 +154,7 @@ def test_bad_protein_query():
 @pytest.fixture
 def client():
     store.clear()
-    yield TestClient(app)
+    yield TestClient(app, base_url="http://localhost")
     store.clear()
 
 

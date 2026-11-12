@@ -164,7 +164,7 @@ def test_unknown_policy_rejected():
 
 def test_api_returns_409_and_leaves_record_unchanged():
     store.clear()
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost")
     r = rec()
     store.add(r)
     res = client.post(f"/records/{r.id}/insert", json={"position": 16, "sequence": "A"})

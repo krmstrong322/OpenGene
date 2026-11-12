@@ -14,16 +14,23 @@
 // while the app is already running). Files are read here and sent to the UI,
 // which imports them through the engine like any other import.
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } = require("electron");
 const { spawn } = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const net = require("net");
 const path = require("path");
+const { pathToFileURL } = require("url");
 
 let backendProcess = null;
 let backendPort = 0;
 let backendReady = false; // set once /health answers; gates window creation
+// A fresh secret for every launch. The engine is told to refuse any request
+// that doesn't carry it, and only our own window is given it — so nothing else
+// on this computer, such as a web page open in the user's browser, can read or
+// change the plasmid library through the engine's local port.
+const apiToken = crypto.randomBytes(32).toString("hex");
 
 let mainWindow = null;
 let rendererReady = false; // the UI has subscribed to commands and files
@@ -102,7 +109,13 @@ function waitForHealth(port, timeoutMs = 30000) {
 function startBackend(port) {
   const exe = backendExecutable();
   backendProcess = spawn(exe, ["--port", String(port)], {
-    env: { ...process.env, OPENGENE_DATA_DIR: app.getPath("userData") },
+    env: {
+      ...process.env,
+      OPENGENE_DATA_DIR: app.getPath("userData"),
+      OPENGENE_API_TOKEN: apiToken,
+      // The UI is loaded from disk, which gives it the anonymous origin "null".
+      OPENGENE_ALLOWED_ORIGINS: "null",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   backendProcess.stdout.on("data", (d) => process.stdout.write(`[backend] ${d}`));
@@ -134,6 +147,28 @@ function stopBackend() {
     }
     backendProcess = null;
   }
+}
+
+// Hand a link to the user's browser — but only a web link. Anything else
+// (file:, a custom app scheme, a script URL) could make the OS run something.
+function openInBrowser(url) {
+  try {
+    const { protocol } = new URL(url);
+    if (protocol === "https:" || protocol === "http:") shell.openExternal(url);
+  } catch {
+    /* not a URL */
+  }
+}
+
+// The UI needs the clipboard and nothing else: no camera, microphone,
+// location, notifications…
+const ALLOWED_PERMISSIONS = new Set(["clipboard-read", "clipboard-sanitized-write"]);
+function restrictPermissions() {
+  const ses = session.defaultSession;
+  ses.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(ALLOWED_PERMISSIONS.has(permission));
+  });
+  ses.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission));
 }
 
 // ---------------------------------------------------------------------------
@@ -383,15 +418,31 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      additionalArguments: [`--api-base=http://127.0.0.1:${backendPort}`],
+      sandbox: true,
+      additionalArguments: [
+        `--api-base=http://127.0.0.1:${backendPort}`,
+        `--api-token=${apiToken}`,
+      ],
     },
   });
 
-  // Open external links in the user's browser, not inside the app window.
+  // The window shows the bundled UI and nothing else. Links open in the
+  // user's browser (web links only), and the window can't be navigated away:
+  // a page loaded from elsewhere would otherwise inherit the bridge and the
+  // engine's access token.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    openInBrowser(url);
     return { action: "deny" };
   });
+  const home = pathToFileURL(rendererIndex()).href;
+  const stayHome = (event, url) => {
+    if (url.split("#")[0] === home) return;
+    event.preventDefault();
+    openInBrowser(url);
+  };
+  win.webContents.on("will-navigate", stayHome);
+  win.webContents.on("will-redirect", stayHome);
+  win.webContents.on("will-attach-webview", (event) => event.preventDefault());
 
   mainWindow = win;
   rendererReady = false;
@@ -418,6 +469,7 @@ async function boot() {
     const backendFailed = startBackend(backendPort);
     await Promise.race([waitForHealth(backendPort), backendFailed]);
     backendReady = true;
+    restrictPermissions();
     buildMenu();
     createWindow();
     void flushPendingFiles();

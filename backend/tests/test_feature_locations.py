@@ -234,7 +234,7 @@ def test_segments_must_match_the_outer_span():
 @pytest.fixture
 def client():
     store.clear()
-    yield TestClient(app)
+    yield TestClient(app, base_url="http://localhost")
     store.clear()
 
 

@@ -26,3 +26,7 @@ desktop/backend/
 desktop/release/
 *.tsbuildinfo
 frontend/vite.config.js
+
+# Test outputs
+frontend/test-results/
+frontend/playwright-report/

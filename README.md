@@ -47,6 +47,14 @@ npm install
 npm run dev                            # http://localhost:5173
 ```
 
+Before opening a pull request, run what CI runs (`.github/workflows/ci.yml`):
+
+```bash
+cd backend  && pytest -q
+cd frontend && npm run check           # lint, type-check + build, unit tests
+cd frontend && npm run e2e             # end-to-end, in a browser
+```
+
 Open the app: the library starts with eight sample plasmids (pUC19, pBR322,
 pEGFP-N1, pGEX-4T-1 and others). They live in
 [`backend/opengene/data/samples/`](backend/opengene/data/samples/), which also
@@ -66,8 +74,10 @@ makes them handy test files to import.
   origin-wrapping features
 - **Sequence view** — both strands, translations under every CDS (minus-strand and
   spliced CDSs included), feature bars and enzyme cut sites on each line; click for a
-  cursor, drag / shift-click / shift-arrows to select; copy, copy reverse complement,
-  paste (inserts or replaces through the engine), delete; the selection shows length,
+  cursor, drag / shift-click / shift-arrows to select; type bases at the cursor or over
+  a selection; copy, copy reverse complement, paste (inserts or replaces through the
+  engine), delete; right-click for a menu (new feature from selection, design primers,
+  edit or remove a feature); the selection shows length,
   GC, Tm, molecular weight and its translation (a selected feature is translated on its
   own strand). Only on-screen lines are drawn, so 100 kb+ constructs stay responsive
 - **Chromatograms** — a trace opens as a linear read with its four channels, base calls,
@@ -83,6 +93,11 @@ makes them handy test files to import.
   stepped through with Enter / Shift+Enter
 - **Editing** — insert / delete / mutate / replace / reverse-complement, with
   correct feature-coordinate maintenance and circular boundary wrap-around
+- **Records** — rename, switch between circular and linear (refused while a feature
+  spans the origin), duplicate; drag-and-drop or multi-file import; the last open record
+  reopens on launch
+- **Reading frame** — an edit that shifts a CDS's frame is applied with a warning by
+  default; the Edit tab can instead block such edits or pad inserts with N
 - **Undo / redo** — every edit is reversible (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z);
   the full record state steps back and forth, and a rejected edit is a no-op
 - **Feature editing** — edit an existing feature's name, type, strand,

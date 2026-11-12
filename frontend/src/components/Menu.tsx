@@ -6,11 +6,14 @@ export function Menu({
   label,
   buttonClass,
   title,
+  align = "right",
   children,
 }: {
   label: ReactNode;
   buttonClass: string;
   title: string;
+  /** Which edge of the button the dropdown lines up with. */
+  align?: "left" | "right";
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -43,7 +46,7 @@ export function Menu({
         {label}
       </button>
       {open && (
-        <div className="menu" role="menu" onClick={() => setOpen(false)}>
+        <div className={align === "left" ? "menu left" : "menu"} role="menu" onClick={() => setOpen(false)}>
           {children}
         </div>
       )}

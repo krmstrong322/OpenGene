@@ -91,7 +91,7 @@ export function ChromatogramPane({ record, selection, onSelect, onError }: Props
   }, []);
 
   const nSamples = trace ? trace.samples.A.length : 0;
-  const peaks = trace?.peaks ?? [];
+  const peaks = useMemo(() => trace?.peaks ?? [], [trace]);
   // Scale to the typical called-peak height (98th percentile), not the
   // tallest blob, which is often dye noise at the start of a read.
   const maxV = useMemo(() => {

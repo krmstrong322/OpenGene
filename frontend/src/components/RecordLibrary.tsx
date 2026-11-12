@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, Trash2 } from "lucide-react";
+import { Copy, Search, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import type { PlasmidRecord, RecordSummary } from "../lib/types";
 
@@ -36,10 +36,14 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const open = async (id: string) => {
+    if (openingId) return;
+    setOpeningId(id);
     try {
       onOpen(await api.getRecord(id));
     } catch (e) {
+      setOpeningId(null);
       onError((e as Error).message);
     }
   };
@@ -48,6 +52,16 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
     try {
       await api.deleteRecord(id);
       setConfirmId(null);
+      load();
+    } catch (e) {
+      onError((e as Error).message);
+    }
+  };
+
+  const duplicate = async (id: string) => {
+    try {
+      const copy = await api.duplicateRecord(id);
+      setNotice(`Added “${copy.name}”.`);
       load();
     } catch (e) {
       onError((e as Error).message);
@@ -88,13 +102,20 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
   const header = (key: SortKey, label: string, className = "") => (
     <th
       className={`sortable ${className}`}
-      onClick={() =>
-        setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "name" }))
-      }
       aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined}
     >
-      {label}
-      <span className="arrow">{sort.key === key ? (sort.desc ? "↓" : "↑") : ""}</span>
+      <button
+        className="sort-btn"
+        title={`Sort by ${label.toLowerCase()}`}
+        onClick={() =>
+          setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "name" }))
+        }
+      >
+        {label}
+        <span className="arrow" aria-hidden="true">
+          {sort.key === key ? (sort.desc ? "↓" : "↑") : ""}
+        </span>
+      </button>
     </th>
   );
 
@@ -144,12 +165,27 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
           </thead>
           <tbody>
             {shown?.map((r) => (
-              <tr key={r.id} onClick={() => confirmId !== r.id && open(r.id)}>
+              <tr
+                key={r.id}
+                className={openingId === r.id ? "opening" : undefined}
+                aria-busy={openingId === r.id}
+                onClick={() => confirmId !== r.id && open(r.id)}
+              >
                 <td>
-                  <span className="name-cell" title={r.name}>
+                  {/* A real button, so a record can be reached and opened from the keyboard. */}
+                  <button
+                    className="name-cell"
+                    title={`Open ${r.name}`}
+                    aria-label={`Open ${r.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void open(r.id);
+                    }}
+                  >
                     <TopologyIcon circular={r.isCircular} />
-                    {r.name}
-                  </span>
+                    <span className="name-text">{r.name}</span>
+                    {openingId === r.id && <span className="muted opening-note">Opening…</span>}
+                  </button>
                 </td>
                 <td className="right">{r.length.toLocaleString()} bp</td>
                 <td className="muted hide-sm">
@@ -171,6 +207,15 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
                       </button>
                     </span>
                   ) : (
+                    <>
+                    <button
+                      className="icon-btn sm"
+                      title={`Duplicate ${r.name}`}
+                      aria-label={`Duplicate ${r.name}`}
+                      onClick={() => duplicate(r.id)}
+                    >
+                      <Copy size={13} />
+                    </button>
                     <button
                       className="icon-btn sm danger"
                       title={`Delete ${r.name}`}
@@ -179,6 +224,7 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
                     >
                       <Trash2 size={13} />
                     </button>
+                    </>
                   )}
                 </td>
               </tr>
@@ -190,7 +236,7 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
         {rows !== null && rows.length === 0 && (
           <div className="table-empty">
             <strong>No plasmids saved yet</strong>
-            Import a GenBank, FASTA, EMBL or SnapGene file, paste a sequence, or use{" "}
+            Drop GenBank, FASTA, EMBL or SnapGene files anywhere on this window, paste a sequence, or use{" "}
             <b>Add samples</b> for a set of reference plasmids to explore.
           </div>
         )}
@@ -199,7 +245,7 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
         )}
 
         <p className="library-foot">
-          {notice ?? "Plasmids are saved on this computer automatically."}
+          {notice ?? "Plasmids are saved on this computer automatically. Drop files anywhere on this window to import them."}
         </p>
       </div>
     </main>

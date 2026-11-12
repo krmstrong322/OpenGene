@@ -18,7 +18,15 @@ from typing import Iterable, Literal
 
 from Bio.Seq import Seq
 
-from ..models import VALID_BASES, Feature, FeatureType, HistoryEvent, PlasmidRecord, Segment
+from ..models import (
+    VALID_BASES,
+    Feature,
+    FeatureType,
+    HistoryEvent,
+    PlasmidRecord,
+    Segment,
+    _new_id,
+)
 
 STOP_CODONS = {"TAA", "TAG", "TGA"}
 START_CODON = "ATG"
@@ -391,6 +399,22 @@ def _invalidate_primers(record: PlasmidRecord, a: int, b: int) -> list[str]:
     return dropped
 
 
+# Messages are read by people, so they number bases from 1 and give ranges
+# inclusively (GenBank style), unlike the 0-based half-open spans used in code.
+def _where(pos: int) -> str:
+    """An insertion point: the boundary after ``pos`` bases."""
+    return "at the start" if pos == 0 else f"after base {pos}"
+
+
+def _bases(start: int, end: int, n: int) -> str:
+    """The span ``[start, end)`` as a 1-based inclusive range."""
+    last = end if end > 0 else n
+    if start + 1 == last:
+        return f"base {last}"
+    label = f"bases {start + 1}–{last}"
+    return f"{label} (across the origin)" if start > end else label
+
+
 def _apply_edit(
     record: PlasmidRecord,
     a: int,
@@ -464,9 +488,11 @@ def insert(
     pos = normalize_index(position, record.length, record.is_circular)
     inserted, warnings = _apply_edit(
         record, pos, pos, insert_seq, frame_policy,
-        f"inserting {len(insert_seq)} bp at {pos}",
+        f"inserting {len(insert_seq)} bp {_where(pos)}",
     )
-    _record_history(record, "insert", f"inserted {len(inserted)} bp at {pos}", warnings)
+    _record_history(
+        record, "insert", f"inserted {len(inserted)} bp {_where(pos)}", warnings
+    )
     return record
 
 
@@ -486,10 +512,11 @@ def delete(
         raise SequenceError("nothing to delete: empty range")
     removed = sum(b - a for a, b in _segments(start, end, n))
     _, warnings = _apply_edit(
-        record, start, end, "", frame_policy, f"deleting [{start},{end})"
+        record, start, end, "", frame_policy, f"deleting {_bases(start, end, n)}"
     )
-    where = "spanning origin" if start > end else f"at [{start},{end})"
-    _record_history(record, "delete", f"deleted {removed} bp {where}", warnings)
+    _record_history(
+        record, "delete", f"deleted {removed} bp ({_bases(start, end, n)})", warnings
+    )
     return record
 
 
@@ -505,7 +532,7 @@ def mutate(record: PlasmidRecord, position: int, new_base: str) -> PlasmidRecord
         record.sequence[:position] + new_base + record.sequence[position + 1:]
     )
     _record_history(
-        record, "mutate", f"{old}>{new_base} at {position}"
+        record, "mutate", f"{old}>{new_base} at base {position + 1}"
     )
     return record
 
@@ -531,12 +558,12 @@ def replace_range(
         return insert(record, start, replacement, frame_policy)
     removed = sum(b - a for a, b in _segments(start, end, n))
     inserted, warnings = _apply_edit(
-        record, start, end, replacement, frame_policy, f"replacing [{start},{end})"
+        record, start, end, replacement, frame_policy, f"replacing {_bases(start, end, n)}"
     )
     _record_history(
         record,
         "replace",
-        f"replaced {removed} bp at [{start},{end}) with {len(inserted)} bp",
+        f"replaced {removed} bp ({_bases(start, end, n)}) with {len(inserted)} bp",
         warnings,
     )
     return record
@@ -575,6 +602,105 @@ def reverse_complement_record(record: PlasmidRecord) -> PlasmidRecord:
         record.primers = []
     _record_history(record, "reverse_complement", "reverse-complemented record", warnings)
     return record
+
+
+# --------------------------------------------------------------------------
+# Record properties: name and topology
+# --------------------------------------------------------------------------
+
+MAX_NAME_LENGTH = 200
+
+
+def rename_record(record: PlasmidRecord, name: str) -> PlasmidRecord:
+    """Give the record a new name."""
+    name = " ".join(name.split())
+    if not name:
+        raise SequenceError("a name can't be empty")
+    if len(name) > MAX_NAME_LENGTH:
+        raise SequenceError(f"a name can be at most {MAX_NAME_LENGTH} characters")
+    if name != record.name:
+        old = record.name
+        record.name = name
+        _record_history(record, "rename", f"renamed {old!r} to {name!r}")
+    return record
+
+
+def _crosses_origin(f: Feature, n: int) -> bool:
+    """True if the feature runs through the origin: a piece that wraps, or
+    pieces that continue past the end of the sequence back to its start."""
+    prev_end = None
+    for s, e in f.spans():
+        end = e if e > 0 else n
+        if s > end:
+            return True
+        if prev_end is not None and s < prev_end:
+            return True
+        prev_end = end
+    return False
+
+
+def set_topology(record: PlasmidRecord, circular: bool) -> PlasmidRecord:
+    """Make the record circular or linear without changing its sequence.
+
+    Closing a linear record is always possible. Opening a circular one at its
+    origin is refused while a feature spans the origin — it would have no
+    single place on the linear molecule — so nothing is silently cut in two.
+    Primers that bind across the origin are dropped, with a warning.
+    """
+    if record.is_circular == circular:
+        return record
+    if record.trace is not None and circular:
+        raise SequenceError("a sequencing read is linear and can't be made circular")
+    warnings: list[str] = []
+    if not circular:
+        n = record.length
+        crossing = [f for f in record.features if _crosses_origin(f, n)]
+        if crossing:
+            raise SequenceError(
+                f"can't make this linear: {_names(crossing)} "
+                f"{'spans' if len(crossing) == 1 else 'span'} the origin. "
+                "Move or remove "
+                f"{'it' if len(crossing) == 1 else 'them'} first."
+            )
+        # A piece that ends exactly at the origin (end 0) ends at the last base.
+        record.features = [
+            _with_spans(f, [(s, e if e > 0 or s == 0 else n) for s, e in f.spans()])
+            if any(e == 0 and s > 0 for s, e in f.spans())
+            else f
+            for f in record.features
+        ]
+        kept = []
+        dropped = []
+        for p in record.primers:
+            if p.bind_start > p.bind_end and p.bind_end != 0:
+                dropped.append(p.name)
+            else:
+                kept.append(p)
+        if dropped:
+            record.primers = kept
+            warnings.append(
+                f"dropped primers {', '.join(sorted(dropped))}: they bind across the origin"
+            )
+    record.is_circular = circular
+    _record_history(
+        record, "topology", f"made {'circular' if circular else 'linear'}", warnings
+    )
+    return record
+
+
+def duplicate_record(record: PlasmidRecord, name: str | None = None) -> PlasmidRecord:
+    """An independent copy of the record, with its own id and a fresh history."""
+    now = time.time()
+    return record.model_copy(
+        deep=True,
+        update={
+            "id": _new_id(),
+            "name": (name or f"{record.name} copy")[:MAX_NAME_LENGTH],
+            "history": [],
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
 
 
 # --------------------------------------------------------------------------

@@ -1,7 +1,10 @@
 import {
+  AlignLeft,
   Check,
   ChevronDown,
+  Circle,
   Download,
+  Minus,
   Monitor,
   Moon,
   Plus,
@@ -10,8 +13,10 @@ import {
   Undo2,
   Upload,
 } from "lucide-react";
+import { useState } from "react";
 import { api } from "../lib/api";
 import { Menu } from "./Menu";
+import type { ViewId } from "../lib/layout";
 import type { ThemePref } from "../lib/theme";
 import type { PlasmidRecord } from "../lib/types";
 import logoUrl from "../assets/logo.svg";
@@ -23,6 +28,11 @@ interface Props {
   onRedo: () => void;
   onNew: () => void;
   onImport: () => void;
+  onRename: (name: string) => void;
+  onSetCircular: (circular: boolean) => void;
+  onDuplicate: () => void;
+  views: Record<ViewId, boolean>;
+  onToggleView: (id: ViewId) => void;
   theme: ThemePref;
   onThemeChange: (t: ThemePref) => void;
 }
@@ -35,6 +45,12 @@ const EXPORT_FORMATS: [string, string, string][] = [
   ["embl", "EMBL", "embl"],
 ];
 
+const VIEWS: { id: ViewId; label: string; Icon: typeof Circle }[] = [
+  { id: "map", label: "Map", Icon: Circle },
+  { id: "linear", label: "Linear", Icon: Minus },
+  { id: "sequence", label: "Sequence", Icon: AlignLeft },
+];
+
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? "⌘" : "Ctrl+";
 
@@ -45,9 +61,27 @@ export function Toolbar({
   onRedo,
   onNew,
   onImport,
+  onRename,
+  onSetCircular,
+  onDuplicate,
+  views,
+  onToggleView,
   theme,
   onThemeChange,
 }: Props) {
+  // Renaming happens in place, in the breadcrumb.
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
+  const startRename = () => {
+    if (!record) return;
+    setDraft(record.name);
+    setRenaming(true);
+  };
+  const commitRename = () => {
+    setRenaming(false);
+    const name = draft.trim();
+    if (record && name && name !== record.name) onRename(name);
+  };
   const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
 
   return (
@@ -64,12 +98,54 @@ export function Toolbar({
             Library
           </button>
           <span className="sep">/</span>
-          <span className="crumb-name" title={record.name}>
-            {record.name}
-          </span>
+          {renaming ? (
+            <input
+              className="input crumb-input"
+              value={draft}
+              autoFocus
+              aria-label="Record name"
+              maxLength={200}
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                else if (e.key === "Escape") setRenaming(false);
+              }}
+            />
+          ) : (
+            <button
+              className="crumb-name"
+              title={`${record.name} — click to rename`}
+              onClick={startRename}
+            >
+              {record.name}
+            </button>
+          )}
           <span className="crumb-meta">
             {record.length.toLocaleString()} bp · {record.isCircular ? "circular" : "linear"}
           </span>
+          <Menu
+            label={<ChevronDown size={13} />}
+            buttonClass="icon-btn sm"
+            title="Record actions"
+            align="left"
+          >
+            <button className="menu-item" onClick={startRename}>
+              Rename…
+            </button>
+            <button
+              className="menu-item"
+              disabled={record.hasTrace}
+              title={record.hasTrace ? "A sequencing read is always linear" : undefined}
+              onClick={() => onSetCircular(!record.isCircular)}
+            >
+              {record.isCircular ? "Make linear" : "Make circular"}
+            </button>
+            <button className="menu-item" onClick={onDuplicate}>
+              Duplicate
+            </button>
+          </Menu>
         </nav>
       )}
 
@@ -78,6 +154,29 @@ export function Toolbar({
       <div className="bar-actions">
         {record && (
           <>
+            <div className="view-toggles" role="group" aria-label="Views">
+              {VIEWS.map(({ id, label, Icon }) => {
+                const last = views[id] && Object.values(views).filter(Boolean).length === 1;
+                return (
+                  <button
+                    key={id}
+                    className={views[id] ? "view-toggle on" : "view-toggle"}
+                    aria-pressed={views[id]}
+                    disabled={last}
+                    onClick={() => onToggleView(id)}
+                    title={
+                      last
+                        ? `${label} is the only view open`
+                        : `${views[id] ? "Hide" : "Show"} the ${label.toLowerCase()} view`
+                    }
+                  >
+                    <Icon size={13} />
+                    <span className="bar-text">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <span className="bar-sep" />
             <button
               className="icon-btn"
               onClick={onUndo}

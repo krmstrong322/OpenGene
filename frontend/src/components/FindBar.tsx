@@ -147,8 +147,10 @@ export function FindBar({ record, focusToken, onClose, onHits, onSelect, onSelec
   const jump = () => {
     const p = Number(goTo.replace(/[,\s]/g, ""));
     if (!Number.isFinite(p)) return;
-    const pos = Math.max(0, Math.min(record.length, Math.round(p)));
-    onSelect({ start: pos, end: pos });
+    if (!record.length) return;
+    // The number typed is a 1-based base; select that base.
+    const base = Math.max(1, Math.min(record.length, Math.round(p)));
+    onSelect({ start: base - 1, end: base });
   };
 
   const h = hits[current];
@@ -242,7 +244,7 @@ export function FindBar({ record, focusToken, onClose, onHits, onSelect, onSelec
           value={goTo}
           inputMode="numeric"
           placeholder="bp"
-          aria-label="Go to position"
+          aria-label="Go to base number"
           onChange={(e) => setGoTo(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {

@@ -1,31 +1,14 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ClipboardEvent as ReactClipboardEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-} from "react";
-import { Copy, Search } from "lucide-react";
-import { api } from "../lib/api";
-import { FindBar } from "./FindBar";
+import { BAR_H, CUT_ROW, FEAT_ROW, OVERSCAN, PAD_X, ROW, buildLines, colOf, groupBases, lineAt, linearize } from "../lib/seqLayout";
+import type { Line, Options, Piece } from "../lib/seqLayout";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { textFieldFocused } from "../lib/desktop";
+import { cleanPaste, copyText, editAtSelection, editErrorMessage, isBaseKey, pasteProblem, selectedSpan } from "../lib/edits";
 import { selectionSegments } from "../lib/selection";
-import { cdsTranslations, complement, reverseComplement, type CdsTranslation } from "../lib/translate";
-import type {
-  CutSite,
-  Feature,
-  FramePolicy,
-  PlasmidRecord,
-  SearchHit,
-  Selection,
-  SelectionInfo,
-} from "../lib/types";
+import { cdsTranslations, complement } from "../lib/translate";
+import type { CutSite, Feature, FramePolicy, PlasmidRecord, SearchHit, Selection } from "../lib/types";
 import { TYPE_COLORS, featureSpans } from "../lib/types";
 
-interface Props {
+export interface Props {
   record: PlasmidRecord;
   selection: Selection | null;
   onSelect: (sel: Selection | null) => void;
@@ -36,425 +19,15 @@ interface Props {
   framePolicy: FramePolicy;
   onRecordChange: (r: PlasmidRecord) => void;
   onError: (msg: string) => void;
+  /** Report something the engine did that the user should know about (not a failure). */
+  onWarning?: (msg: string) => void;
+  /** Confirm that something worked ("Copied 29 bases"). */
+  onInfo?: (msg: string) => void;
+  /** Open the right-click menu at a point (over `feature`, if on a feature bar). */
+  onMenu?: (x: number, y: number, feature?: Feature) => void;
 }
 
-// Vertical layout of one sequence line, in px.
-const ROW = 18; // a strand or translation row
-const CUT_ROW = 13; // an enzyme label row
-const FEAT_ROW = 16; // a feature lane (bar + spacing)
-const BAR_H = 12;
-const LINE_GAP = 12;
-const PAD_X = 14;
-const OVERSCAN = 400; // px rendered above/below the viewport
-const CUT_FONT_RATIO = 10 / 12; // enzyme labels are 10px in a 12px-mono grid
-
-const IUPAC = /^[ACGTURYSWKMBDHVN]*$/;
-
-// Column of base `k` within a line: one blank column after every 10 bases.
-const colOf = (k: number) => k + Math.floor(k / 10);
-
-interface Piece {
-  a: number; // absolute base range [a, b) within one line
-  b: number;
-  gap: boolean; // the gap (intron) between two parts
-  tip: "start" | "end" | null; // the feature's 3' end is here
-}
-
-interface LineFeature {
-  f: Feature;
-  color: string;
-  lane: number;
-  pieces: Piece[];
-}
-
-interface LineCut {
-  pos: number;
-  enzyme: string;
-  row: number;
-}
-
-interface Line {
-  start: number;
-  end: number;
-  top: number;
-  height: number;
-  cutRows: number;
-  cuts: LineCut[];
-  cds: { t: CdsTranslation; row: number }[];
-  cdsRows: number;
-  feats: LineFeature[];
-  featLanes: number;
-}
-
-interface Options {
-  complement: boolean;
-  translations: boolean;
-  features: boolean;
-  enzymes: boolean;
-}
-
-// Linear pieces of a [s, e) span that may wrap the origin.
-function linearize(s: number, e: number, n: number): [number, number][] {
-  if (e > s) return [[s, e]];
-  if (s > e) return ([[s, n], [0, e]] as [number, number][]).filter(([a, b]) => b > a);
-  return [];
-}
-
-// Greedy packing of [lo, hi) extents into rows; returns each item's row.
-function pack(extents: [number, number][]): { rows: number[]; count: number } {
-  const order = extents.map((_, i) => i).sort((i, j) => extents[i][0] - extents[j][0]);
-  const ends: number[] = [];
-  const rows = new Array<number>(extents.length);
-  for (const i of order) {
-    const [lo, hi] = extents[i];
-    let r = ends.findIndex((e) => lo >= e);
-    if (r === -1) {
-      ends.push(hi);
-      r = ends.length - 1;
-    } else ends[r] = hi;
-    rows[i] = r;
-  }
-  return { rows, count: ends.length };
-}
-
-function buildLines(
-  record: PlasmidRecord,
-  perLine: number,
-  cutSites: CutSite[],
-  translations: CdsTranslation[],
-  opts: Options,
-  cw: number,
-): Line[] {
-  const n = record.length;
-  const count = Math.max(1, Math.ceil(n / perLine));
-  const featBuckets: Map<string, LineFeature>[] = Array.from({ length: count }, () => new Map());
-
-  const addPiece = (f: Feature, color: string, a: number, b: number, gap: boolean, tip: Piece["tip"]) => {
-    const first = Math.floor(a / perLine);
-    const last = Math.floor((b - 1) / perLine);
-    for (let li = first; li <= last; li++) {
-      const pa = Math.max(a, li * perLine);
-      const pb = Math.min(b, (li + 1) * perLine);
-      const t = tip === "end" && li === last ? "end" : tip === "start" && li === first ? "start" : null;
-      let lf = featBuckets[li].get(f.id);
-      if (!lf) {
-        lf = { f, color, lane: 0, pieces: [] };
-        featBuckets[li].set(f.id, lf);
-      }
-      lf.pieces.push({ a: pa, b: pb, gap, tip: t });
-    }
-  };
-
-  if (opts.features || opts.translations) {
-    for (const f of record.features) {
-      const color = f.color || TYPE_COLORS[f.type] || "#8E949C";
-      const spans = featureSpans(f);
-      spans.forEach(([s, e], i) => {
-        if (i > 0) {
-          for (const [a, b] of linearize(spans[i - 1][1], s, n)) addPiece(f, color, a, b, true, null);
-        }
-        const chunks = linearize(s, e, n);
-        chunks.forEach(([a, b], ci) => {
-          let tip: Piece["tip"] = null;
-          if (f.strand === 1 && i === spans.length - 1 && ci === chunks.length - 1) tip = "end";
-          if (f.strand === -1 && i === 0 && ci === 0) tip = "start";
-          addPiece(f, color, a, b, false, tip);
-        });
-      });
-    }
-  }
-
-  const transById = new Map(translations.map((t) => [t.feature.id, t]));
-  const cutBuckets: { pos: number; enzyme: string }[][] = Array.from({ length: count }, () => []);
-  if (opts.enzymes) {
-    for (const c of cutSites) {
-      const li = Math.min(Math.floor(c.position / perLine), count - 1);
-      if (li >= 0) cutBuckets[li].push({ pos: c.position, enzyme: c.enzyme });
-    }
-  }
-
-  const lines: Line[] = [];
-  let top = 0;
-  for (let li = 0; li < count; li++) {
-    const start = li * perLine;
-    const end = Math.min(n, start + perLine);
-    const all = Array.from(featBuckets[li].values());
-
-    const feats = opts.features ? all : [];
-    const extent = (lf: LineFeature): [number, number] => [
-      Math.min(...lf.pieces.map((p) => p.a)),
-      Math.max(...lf.pieces.map((p) => p.b)),
-    ];
-    const fp = pack(feats.map(extent));
-    feats.forEach((lf, i) => (lf.lane = fp.rows[i]));
-
-    const cdsHere = opts.translations
-      ? all
-          .filter((lf) => lf.f.type === "CDS" && lf.pieces.some((p) => !p.gap) && transById.has(lf.f.id))
-          .map((lf) => ({ t: transById.get(lf.f.id)!, ext: extent(lf) }))
-      : [];
-    const cp = pack(cdsHere.map((c) => c.ext));
-    const cds = cdsHere.map((c, i) => ({ t: c.t, row: cp.rows[i] }));
-
-    // Enzyme labels: stack any that would overlap.
-    const cutsRaw = cutBuckets[li].sort((x, y) => x.pos - y.pos);
-    const cutCw = cw * CUT_FONT_RATIO;
-    const cutExt = cutsRaw.map((c): [number, number] => {
-      const x = colOf(Math.max(0, c.pos - start)) * cw;
-      return [x, x + (c.enzyme.length + 1) * cutCw];
-    });
-    const kp = pack(cutExt);
-    const cuts = cutsRaw.map((c, i) => ({ ...c, row: kp.rows[i] }));
-
-    const height =
-      kp.count * CUT_ROW +
-      ROW * (opts.complement ? 2 : 1) +
-      cp.count * ROW +
-      fp.count * FEAT_ROW +
-      LINE_GAP;
-    lines.push({
-      start,
-      end,
-      top,
-      height,
-      cutRows: kp.count,
-      cuts,
-      cds,
-      cdsRows: cp.count,
-      feats,
-      featLanes: fp.count,
-    });
-    top += height;
-  }
-  return lines;
-}
-
-// The line holding vertical offset `y` (binary search over line tops).
-function lineAt(lines: Line[], y: number): number {
-  let lo = 0;
-  let hi = lines.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (lines[mid].top <= y) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo;
-}
-
-function groupBases(s: string): string {
-  return s.replace(/(.{10})(?=.)/g, "$1 ");
-}
-
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return;
-  } catch {
-    // Fall back for contexts without the async clipboard API.
-  }
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.opacity = "0";
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand("copy");
-  ta.remove();
-}
-
-// Pasted text as bases: drop FASTA headers, whitespace and numbering.
-function cleanPaste(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .filter((l) => !l.startsWith(">"))
-    .join("")
-    .replace(/[\s\d]/g, "")
-    .toUpperCase();
-}
-
-export function SequencePane(props: Props) {
-  const { record, selection } = props;
-  const [opts, setOpts] = useState<Options>({
-    complement: true,
-    translations: true,
-    features: true,
-    enzymes: true,
-  });
-  const toggle = (k: keyof Options) => setOpts((o) => ({ ...o, [k]: !o[k] }));
-
-  const segs = selectionSegments(selection, record.length);
-  const selected = segs.map(([a, b]) => record.sequence.slice(a, b)).join("");
-
-  // Find: Ctrl/⌘+F opens the bar (or refocuses it) while a record is open.
-  const [findOpen, setFindOpen] = useState(false);
-  const [findFocus, setFindFocus] = useState(0);
-  const [hits, setHits] = useState<{ list: SearchHit[]; current: number }>({ list: [], current: -1 });
-  const openFind = useCallback(() => {
-    setFindOpen(true);
-    setFindFocus((t) => t + 1);
-  }, []);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        openFind();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [openFind]);
-
-  return (
-    <section className="pane">
-      <div className="pane-head">
-        <h3 className="pane-title">Sequence</h3>
-        <div className="map-controls">
-          {(
-            [
-              ["complement", "Both strands"],
-              ["translations", "Translations"],
-              ["features", "Features"],
-              ["enzymes", "Enzymes"],
-            ] as const
-          ).map(([k, label]) => (
-            <label key={k} className="check">
-              <input type="checkbox" checked={opts[k]} onChange={() => toggle(k)} />
-              {label}
-            </label>
-          ))}
-        </div>
-        <span className="spacer" />
-        <button className="btn btn-ghost btn-sm" onClick={openFind} title="Find a sequence, protein or feature (Ctrl/⌘+F)">
-          <Search size={13} /> Find
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          disabled={!selected}
-          onClick={() => void copyText(selected)}
-          title="Copy the selected bases (Ctrl/⌘+C in the sequence)"
-        >
-          <Copy size={13} /> Copy
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          disabled={!selected}
-          onClick={() => void copyText(reverseComplement(selected))}
-          title="Copy the reverse complement of the selection"
-        >
-          <Copy size={13} /> Rev. comp.
-        </button>
-      </div>
-      {findOpen && (
-        <FindBar
-          record={record}
-          focusToken={findFocus}
-          onClose={() => setFindOpen(false)}
-          onHits={(list, current) => setHits({ list, current })}
-          onSelect={props.onSelect}
-          onSelectFeature={props.onSelectFeature}
-        />
-      )}
-      <SelectionBar record={record} selection={selection} />
-      <SequenceViewer {...props} opts={opts} hits={hits.list} currentHit={hits.current} />
-    </section>
-  );
-}
-
-function SelectionBar({ record, selection }: { record: PlasmidRecord; selection: Selection | null }) {
-  const [info, setInfo] = useState<SelectionInfo | null>(null);
-  const segs = selectionSegments(selection, record.length);
-  const hasRange = segs.length > 0;
-  const start = selection?.wrap ? selection.start : Math.min(selection?.start ?? 0, selection?.end ?? 0);
-  const end = selection?.wrap ? selection.end : Math.max(selection?.start ?? 0, selection?.end ?? 0);
-  const featureId = selection?.featureId;
-
-  useEffect(() => {
-    setInfo(null);
-    if (!hasRange) return;
-    let cancelled = false;
-    const t = window.setTimeout(() => {
-      api
-        .selectionInfo(record.id, start, end, featureId)
-        .then((i) => !cancelled && setInfo(i))
-        .catch(() => !cancelled && setInfo(null));
-    }, 150);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, [record.id, record.sequence, hasRange, start, end, featureId]);
-
-  if (!selection) {
-    return (
-      <div className="seq-info muted">
-        Click to place the cursor, drag to select. Shift extends; Ctrl/⌘+C copies, Ctrl/⌘+V pastes.
-      </div>
-    );
-  }
-  if (!hasRange) {
-    return <div className="seq-info">Cursor at {selection.start.toLocaleString()}</div>;
-  }
-  const len = segs.reduce((s, [a, b]) => s + b - a, 0);
-  return (
-    <div className="seq-info">
-      <span className="num">
-        {start.toLocaleString()}–{end.toLocaleString()}
-        {selection.wrap ? " (wraps origin)" : ""}
-      </span>
-      <span>
-        <b className="num">{len.toLocaleString()}</b> bp
-      </span>
-      {info && (
-        <>
-          <span>
-            GC <b className="num">{info.gc_content.toFixed(1)}%</b>
-          </span>
-          {info.tm !== null && (
-            <span>
-              Tm <b className="num">{info.tm.toFixed(1)} °C</b>
-            </span>
-          )}
-          {info.mw_double !== null && (
-            <span title={`single-stranded ${formatMw(info.mw_single!)}`}>
-              MW <b className="num">{formatMw(info.mw_double)}</b> ds
-            </span>
-          )}
-          {info.translation && (
-            <span className="seq-info-aa" title={info.translation}>
-              <span className="muted">
-                {info.translation_of === "selection"
-                  ? "Translation"
-                  : `${info.translation_of} (${info.translation_strand === -1 ? "−" : "+"})`}
-              </span>{" "}
-              <code>{info.translation}</code>
-              {info.protein_mw !== null && (
-                <span className="muted num"> · {formatMw(info.protein_mw)}</span>
-              )}
-              <button
-                className="icon-btn sm"
-                aria-label="Copy translation"
-                title="Copy translation"
-                onClick={() => void copyText(info.translation)}
-              >
-                <Copy size={12} />
-              </button>
-            </span>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-function formatMw(gPerMol: number): string {
-  return gPerMol >= 1e6
-    ? `${(gPerMol / 1e6).toFixed(2)} MDa`
-    : gPerMol >= 1e3
-      ? `${(gPerMol / 1e3).toFixed(1)} kDa`
-      : `${gPerMol.toFixed(0)} Da`;
-}
-
-function SequenceViewer({
+export function SequenceViewer({
   record,
   selection,
   onSelect,
@@ -465,6 +38,8 @@ function SequenceViewer({
   framePolicy,
   onRecordChange,
   onError,
+  onWarning,
+  onMenu,
   opts,
   hits,
   currentHit,
@@ -616,61 +191,128 @@ function SequenceViewer({
   }, [posAt, select]);
 
   // ----- editing through the engine -----
-  const applyEdit = async (
-    call: () => Promise<PlasmidRecord>,
-    at: number,
-    inserted: (updated: PlasmidRecord) => number,
-  ) => {
+  // Put `bases` at `sel` (replacing a range, inserting at a cursor; "" deletes)
+  // and leave the cursor after them, or select them when `selectNew` is set.
+  const edit = async (sel: Selection, bases: string, selectNew: boolean) => {
     try {
-      const updated = await call();
-      onRecordChange(updated);
-      const k = Math.max(0, inserted(updated));
-      const a = Math.min(at, updated.length);
-      select(a, Math.min(updated.length, a + k));
-      const warnings = updated.history[updated.history.length - 1]?.warnings ?? [];
-      if (warnings.length) onError(warnings.join("\n"));
+      const res = await editAtSelection(record, sel, bases, framePolicy);
+      onRecordChange(res.record);
+      const end = Math.min(res.record.length, res.at + res.inserted);
+      select(selectNew ? res.at : end, end);
+      if (res.warnings.length) (onWarning ?? onError)(res.warnings.join("\n"));
     } catch (err) {
-      onError((err as Error).message);
+      onError(editErrorMessage(err));
     }
   };
 
-  const range = () => {
-    if (!selection || selection.start === selection.end) return null;
-    return selection.wrap
-      ? { start: selection.start, end: selection.end, len: n - selection.start + selection.end }
-      : {
-          start: Math.min(selection.start, selection.end),
-          end: Math.max(selection.start, selection.end),
-          len: Math.abs(selection.end - selection.start),
-        };
+  // Typing. Keystrokes are buffered and sent in order, one engine call at a
+  // time, so fast typing can't race the cursor: whatever arrives while a call
+  // is in flight goes out together in the next one.
+  const typed = useRef("");
+  const typing = useRef(false);
+  const typeBases = (bases: string) => {
+    if (!selection) return;
+    typed.current += bases;
+    if (typing.current) return;
+    typing.current = true;
+    void (async () => {
+      let rec = record;
+      let sel: Selection = selection;
+      try {
+        while (typed.current) {
+          const next = typed.current;
+          typed.current = "";
+          const res = await editAtSelection(rec, sel, next, framePolicy);
+          rec = res.record;
+          const p = Math.min(rec.length, res.at + res.inserted);
+          sel = { start: p, end: p };
+          onRecordChange(rec);
+          select(p, p);
+          scrollToPos(p);
+          if (res.warnings.length) (onWarning ?? onError)(res.warnings.join("\n"));
+        }
+      } catch (err) {
+        typed.current = "";
+        onError(editErrorMessage(err));
+      } finally {
+        typing.current = false;
+      }
+    })();
   };
 
-  const onPaste = (e: ReactClipboardEvent) => {
+  const onPaste = (e: ClipboardEvent) => {
     e.preventDefault();
-    const bases = cleanPaste(e.clipboardData.getData("text"));
+    const bases = cleanPaste(e.clipboardData?.getData("text") ?? "");
     if (!bases) return;
-    if (!IUPAC.test(bases)) {
-      const bad = Array.from(new Set(bases.replace(/[ACGTURYSWKMBDHVN]/g, ""))).join(" ");
-      onError(`Can't paste: the clipboard holds characters that aren't bases (${bad}).`);
+    const problem = pasteProblem(bases);
+    if (problem) {
+      onError(problem);
       return;
     }
     if (!selection) {
       onError("Click in the sequence to place the cursor, then paste.");
       return;
     }
-    const r = range();
-    if (r) {
-      void applyEdit(
-        () => api.replace(record.id, r.start, r.end, bases, framePolicy),
-        // A replace that wraps the origin renumbers the record: what was kept
-        // now starts at 0 and the new bases follow it.
-        r.start > r.end ? n - r.len : r.start,
-        (u) => u.length - (n - r.len),
-      );
-    } else {
-      const at = selection.start;
-      void applyEdit(() => api.insert(record.id, at, bases, framePolicy), at, (u) => u.length - n);
+    void edit(selection, bases, true);
+  };
+
+  // Copy / cut from the browser or the desktop app's Edit menu (the keyboard
+  // shortcut for copy is handled in onKeyDown). Cut also deletes the bases.
+  const cutting = useRef(false);
+  const onCopy = (e: ClipboardEvent) => {
+    const text = selectionSegments(selection, n)
+      .map(([a, b]) => seq.slice(a, b))
+      .join("");
+    if (!text) return;
+    e.preventDefault();
+    e.clipboardData?.setData("text/plain", text);
+    // A cut can arrive twice (shortcut and menu); delete only once.
+    if (e.type === "cut" && selection && !typing.current && !cutting.current) {
+      cutting.current = true;
+      void edit(selection, "", false).finally(() => (cutting.current = false));
     }
+  };
+
+  // Clipboard events are listened for on the document and acted on while the
+  // view has the focus: the view isn't a text field, so the browser may aim
+  // them at the page body instead of at it. Cancelling the before* events
+  // tells the browser that Cut/Copy/Paste are available here, which is what
+  // makes the desktop app's Edit menu (and its shortcuts) reach the view.
+  const clipboardRef = useRef({ onCopy, onPaste });
+  clipboardRef.current = { onCopy, onPaste };
+  useEffect(() => {
+    const focused = () => !!scrollerRef.current && document.activeElement === scrollerRef.current;
+    // Copy also works while the focus is on a button or nothing at all (after
+    // Select All from the menu, say) — anywhere but a text field, which has
+    // its own text to copy. Changing the sequence needs the view focused.
+    const canCopy = () => focused() || !textFieldFocused();
+    const allowCopy = (e: Event) => canCopy() && e.preventDefault();
+    const allowEdit = (e: Event) => focused() && e.preventDefault();
+    const copy = (e: Event) => canCopy() && clipboardRef.current.onCopy(e as ClipboardEvent);
+    const cut = (e: Event) => focused() && clipboardRef.current.onCopy(e as ClipboardEvent);
+    const paste = (e: Event) => focused() && clipboardRef.current.onPaste(e as ClipboardEvent);
+    const handlers: [string, (e: Event) => void][] = [
+      ["beforecopy", allowCopy],
+      ["beforecut", allowEdit],
+      ["beforepaste", allowEdit],
+      ["copy", copy],
+      ["cut", cut],
+      ["paste", paste],
+    ];
+    handlers.forEach(([name, h]) => document.addEventListener(name, h));
+    return () => handlers.forEach(([name, h]) => document.removeEventListener(name, h));
+  }, []);
+
+  // Right-click: keep a selection that was clicked inside, otherwise move the
+  // cursor to the click first (as a text editor does), then open the menu.
+  const onContextMenu = (e: ReactMouseEvent) => {
+    if (!onMenu) return;
+    e.preventDefault();
+    scrollerRef.current?.focus();
+    const p = posAt(e.clientX, e.clientY);
+    const inside = selectionSegments(selection, n).some(([a, b]) => p >= a && p <= b);
+    if (!inside) select(p, p);
+    onMenu(e.clientX, e.clientY);
   };
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
@@ -699,19 +341,22 @@ function SequenceViewer({
     }
     if ((key === "Backspace" || key === "Delete") && selection) {
       e.preventDefault();
-      const r = range();
-      if (r) {
-        void applyEdit(
-          () => api.del(record.id, r.start, r.end, framePolicy),
-          r.start > r.end ? n - r.len : r.start,
-          () => 0,
-        );
+      if (typing.current) return;
+      if (selectedSpan(selection, n)) {
+        void edit(selection, "", false);
       } else {
         const p = selection.start;
         const [a, b] = key === "Backspace" ? [p - 1, p] : [p, p + 1];
         if (a < 0 || b > n) return;
-        void applyEdit(() => api.del(record.id, a, b, framePolicy), a, () => 0);
+        void edit({ start: a, end: b }, "", false);
       }
+      return;
+    }
+    // A base typed at the cursor is inserted; typed over a selection it
+    // replaces the selection.
+    if (!mod && !e.altKey && isBaseKey(key) && selection) {
+      e.preventDefault();
+      typeBases(key.toUpperCase());
       return;
     }
     const steps: Record<string, number> = {
@@ -725,7 +370,7 @@ function SequenceViewer({
     if (key in steps) {
       if (!e.shiftKey && selection && selection.start !== selection.end && (key === "ArrowLeft" || key === "ArrowRight")) {
         // Collapse a selection to its edge, like a text editor.
-        const r = range()!;
+        const r = selectedSpan(selection, n)!;
         target = key === "ArrowLeft" ? r.start : r.end;
       } else {
         target = focus + steps[key];
@@ -780,7 +425,7 @@ function SequenceViewer({
       aria-readonly="false"
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       onKeyDown={onKeyDown}
-      onPaste={onPaste}
+      onContextMenu={onContextMenu}
     >
       <span ref={probeRef} className="seq-probe" aria-hidden="true">
         0000000000
@@ -910,6 +555,12 @@ function SequenceViewer({
                       e.stopPropagation();
                       e.preventDefault();
                       onSelectFeature(lf.f);
+                    }}
+                    onContextMenu={(e) => {
+                      if (!onMenu) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onMenu(e.clientX, e.clientY, lf.f);
                     }}
                     onMouseEnter={() => onHover(lf.f.id)}
                     onMouseLeave={() => onHover(null)}

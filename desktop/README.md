@@ -25,6 +25,40 @@ A user's plasmids persist in a SQLite file under the OS data directory
 (`~/Library/Application Support/OpenGene` on macOS,
 `%APPDATA%\OpenGene` on Windows), so work survives quitting and updates.
 
+## Menu, Open… and file associations
+
+The main process (`electron/main.js`) owns what only the OS shell can do:
+
+- **Application menu** — File (New Sequence, Open…, Export As, Show Library),
+  Edit (Undo, Redo, Cut, Copy, Paste, Select All, Find), View (show/hide the
+  map, linear view and sequence; appearance; zoom), Window and Help. Items
+  that act on the open record are sent to the UI as a command string
+  (`"undo"`, `"export:genbank"`, `"view:map"` …) and carried out there; the UI
+  reports whether a record is open so record-only items grey out.
+- **Opening files** — File ▸ Open… (native dialog, multi-select), files passed
+  on the command line, a file opened while OpenGene is already running (the
+  app is single-instance, so it goes to the existing window), and on macOS the
+  `open-file` event (double-click, "Open With", a drop on the dock icon). The
+  main process reads the files and hands them to the UI, which imports them
+  through the engine exactly like a drag-and-drop import.
+- **File associations** — `fileAssociations` in `electron-builder.yml`
+  registers GenBank, FASTA, EMBL, SnapGene `.dna` and Sanger trace extensions
+  with the installers. On macOS OpenGene is an *alternate* handler: it shows
+  under "Open With" without taking any type over from another app.
+
+The bridge is `electron/preload.js` (`window.opengeneDesktop`); its UI side is
+`frontend/src/lib/desktop.ts`. Keep the extension lists in `main.js`
+(`IMPORT_EXTENSIONS`), `electron-builder.yml` and the UI's file picker in step.
+
+To try it without building an installer (after the two builds below):
+
+```bash
+cd desktop
+npm start                         # the app
+npx electron . path/to/file.gb    # … opening a file
+xvfb-run -a npx electron --no-sandbox .   # headless Linux / CI / containers
+```
+
 ## Getting installers (the normal path)
 
 You don't build these locally per-OS. Push a tag (or run the workflow manually)

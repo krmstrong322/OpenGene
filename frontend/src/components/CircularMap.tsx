@@ -1,6 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ZoomControls, wheelZoomFactor } from "./ZoomControls";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { METHYL_LABELS, TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
+import { boundaryLabel, rangeLabel, tickLabel } from "../lib/coords";
+import { MAP_KEYS_HINT, mapKeyHandler } from "../lib/mapKeys";
+import { useSize } from "../lib/useSize";
 import {
   arcPath,
   baseToAngle,
@@ -15,6 +19,8 @@ interface Props {
   cutSites: CutSite[];
   selection: Selection | null;
   onSelectFeature: (f: Feature) => void;
+  /** Open the right-click menu for a feature. */
+  onFeatureMenu?: (x: number, y: number, f: Feature) => void;
   onHover: (featureId: string | null) => void;
   hoveredId: string | null;
   primers?: Primer[];
@@ -43,6 +49,9 @@ const R_ORF_MIN = 30;
 const R_LABEL = R_BACKBONE + 66;
 const LABEL_GAP = 15; // min vertical spacing between labels on one side
 const LABEL_MAX = 24; // characters before a label is truncated
+const TEXT_BOOST_MAX = 1.45;
+const ZOOM_MAX = 8;
+const MAX_CUT_LABELS = 40;
 const MAX_LABELS = 64; // above this many features, only the active one is labelled
 
 // Outer radius of feature ring `ring` (0 = centred on the backbone).
@@ -82,6 +91,7 @@ export function CircularMap({
   cutSites,
   selection,
   onSelectFeature,
+  onFeatureMenu,
   onHover,
   hoveredId,
   primers = [],
@@ -89,6 +99,90 @@ export function CircularMap({
   onSelectRange,
 }: Props) {
   const length = record.length || 1;
+  // The drawing scales to fit its pane. When the pane is small, text is
+  // enlarged (up to TEXT_BOOST_MAX) to stay readable, and labels are spaced
+  // and truncated to match.
+  const [svgRef, size] = useSize<SVGSVGElement>();
+
+  // Zoom and pan: the view is a window onto the drawing, `zoom` times
+  // magnified and centred on (cx, cy) in drawing units.
+  const [view, setView] = useState({ zoom: 1, cx: CX, cy: CY });
+  useEffect(() => setView({ zoom: 1, cx: CX, cy: CY }), [record.id]);
+  const vbW = W / view.zoom;
+  const vbH = H / view.zoom;
+  const vbX = view.cx - vbW / 2;
+  const vbY = view.cy - vbH / 2;
+
+  const fit = size ? Math.min(size.width / W, size.height / H) : 1;
+  const drawn = fit * view.zoom;
+  // Text is drawn at a readable size whatever the scale: enlarged when the
+  // pane is small, and held at its unzoomed size on screen when zoomed in, so
+  // zooming spreads labels apart instead of just magnifying them.
+  const k = drawn > 0 ? Math.min(TEXT_BOOST_MAX, Math.max(1 / view.zoom, 1 / drawn)) : 1;
+
+  // Zoom by `factor`, keeping the drawing point under (clientX, clientY) —
+  // or the middle of the view — where it is.
+  const zoomBy = (factor: number, clientX?: number, clientY?: number) => {
+    setView((v) => {
+      const zoom = Math.min(ZOOM_MAX, Math.max(1, v.zoom * factor));
+      if (zoom === v.zoom) return v;
+      let px = v.cx;
+      let py = v.cy;
+      const rect = svgRef.current?.getBoundingClientRect();
+      if (rect && clientX !== undefined && clientY !== undefined && rect.width && rect.height) {
+        const s = Math.min(rect.width / (W / v.zoom), rect.height / (H / v.zoom));
+        px = v.cx + (clientX - (rect.left + rect.width / 2)) / s;
+        py = v.cy + (clientY - (rect.top + rect.height / 2)) / s;
+      }
+      // The point stays put: its offset from the centre shrinks by the zoom ratio.
+      const r = v.zoom / zoom;
+      return clampView({ zoom, cx: px - (px - v.cx) * r, cy: py - (py - v.cy) * r });
+    });
+  };
+  const zoomRef = useRef(zoomBy);
+  zoomRef.current = zoomBy;
+  // Ctrl/⌘ + wheel, which is also how a trackpad pinch arrives. Registered
+  // natively: React's wheel listener is passive and can't stop the page zoom.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomRef.current(wheelZoomFactor(e), e.clientX, e.clientY);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [svgRef]);
+
+  // Drag to pan when zoomed in. A drag must not also count as a click on
+  // whatever feature it started or ended on.
+  const drag = useRef<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null);
+  const [panning, setPanning] = useState(false);
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.button !== 0 || view.zoom <= 1) return;
+    drag.current = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy, moved: false };
+  };
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 4) return;
+    if (!d.moved) {
+      d.moved = true;
+      setPanning(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    setView((v) => clampView({ zoom: v.zoom, cx: d.cx - dx / drawn, cy: d.cy - dy / drawn }));
+  };
+  const endDrag = () => {
+    // Keep `moved` until the click that follows the release has been swallowed.
+    const d = drag.current;
+    if (d?.moved) window.setTimeout(() => (drag.current = null), 0);
+    else drag.current = null;
+    setPanning(false);
+  };
   const ringOf = useMemo(
     () => assignRings(record.features, length),
     [record.features, length],
@@ -133,32 +227,57 @@ export function CircularMap({
   // Feature and cut-site labels share one layout, so neither can overlap the other.
   const labels = useMemo(
     () =>
-      layoutLabels([
+      layoutLabels(LABEL_GAP * k, [
         ...labelled.map((f) => ({
           key: f.id,
           feature: f,
-          text: truncate(f.name, LABEL_MAX),
+          text: truncate(f.name, Math.min(48, Math.floor(LABEL_MAX / k))),
           angle: baseToAngle(midBase(f, length), length),
           anchorR: R_MARK,
         })),
-        ...cutSites.map((c, i) => ({
+        // A big enzyme set would bury the map in names; past the limit the
+        // sites keep their marks (and tooltips) and the linear view names them.
+        ...(cutSites.length > MAX_CUT_LABELS ? [] : cutSites).map((c, i) => ({
           key: `cut-${i}`,
           text: c.enzyme,
           angle: baseToAngle(c.position, length),
           anchorR: R_MARK + 11,
         })),
       ]),
-    [labelled, cutSites, length],
+    [labelled, cutSites, length, k],
   );
 
   return (
+    <div className="map-wrap">
     <svg
+      ref={svgRef}
       className="map-svg"
-      viewBox={`0 0 ${W} ${H}`}
+      viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
       width="100%"
-      style={{ maxHeight: "62vh", userSelect: "none" }}
-      role="img"
-      aria-label={`Circular map of ${record.name}`}
+      style={{
+        userSelect: "none",
+        cursor: panning ? "grabbing" : view.zoom > 1 ? "grab" : undefined,
+        touchAction: view.zoom > 1 ? "none" : undefined,
+      }}
+      role="application"
+      aria-roledescription="map"
+      aria-label={`Circular map of ${record.name}. ${MAP_KEYS_HINT}`}
+      tabIndex={0}
+      onKeyDown={mapKeyHandler({
+        features: record.features,
+        selection,
+        onSelectFeature,
+        onFeatureMenu,
+        zoomBy: (f) => zoomBy(f),
+        resetZoom: () => setView({ zoom: 1, cx: CX, cy: CY }),
+      })}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onClickCapture={(e) => {
+        if (drag.current?.moved) e.stopPropagation();
+      }}
     >
       {/* backbone */}
       <circle
@@ -190,11 +309,11 @@ export function CircularMap({
               className="tick-label"
               x={t.labelPoint.x}
               y={t.labelPoint.y}
-              fontSize={9}
+              fontSize={9 * k}
               textAnchor="middle"
               dominantBaseline="middle"
             >
-              {b}
+              {tickLabel(b)}
             </text>
           </g>
         );
@@ -230,7 +349,7 @@ export function CircularMap({
             onClick={() => onSelectRange?.({ start: o.start, end: o.end })}
           >
             <title>
-              ORF {o.start}–{o.end} ({o.strand === 1 ? "+" : "−"}) · {o.protein.length} aa
+              ORF {rangeLabel(o.start, o.end, length)} ({o.strand === 1 ? "+" : "−"}) · {o.protein.length} aa
             </title>
           </path>
         );
@@ -278,7 +397,13 @@ export function CircularMap({
             key={f.id}
             opacity={hoveredId && !isActive ? 0.6 : 1}
             style={{ cursor: "pointer" }}
+            data-feature-id={f.id}
             onClick={() => onSelectFeature(f)}
+            onContextMenu={(e) => {
+              if (!onFeatureMenu) return;
+              e.preventDefault();
+              onFeatureMenu(e.clientX, e.clientY, f);
+            }}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
           >
@@ -323,7 +448,7 @@ export function CircularMap({
             y2={t.to.y}
             strokeWidth={1.5}
           >
-            <title>{cutTitle(c)}</title>
+            <title>{cutTitle(c, length, record.isCircular)}</title>
           </line>
         );
       })}
@@ -349,7 +474,7 @@ export function CircularMap({
             }
             x={l.x}
             y={l.y}
-            fontSize={f ? 11 : 10}
+            fontSize={(f ? 11 : 10) * k}
             textAnchor={l.side === "right" ? "start" : "end"}
             dominantBaseline="middle"
           >
@@ -368,7 +493,13 @@ export function CircularMap({
           <g
             key={l.key}
             style={{ cursor: "pointer" }}
+            data-feature-id={f.id}
             onClick={() => onSelectFeature(f)}
+            onContextMenu={(e) => {
+              if (!onFeatureMenu) return;
+              e.preventDefault();
+              onFeatureMenu(e.clientX, e.clientY, f);
+            }}
             onMouseEnter={() => onHover(f.id)}
             onMouseLeave={() => onHover(null)}
           >
@@ -379,14 +510,34 @@ export function CircularMap({
       })}
 
       {/* center label */}
-      <text className="center-name" x={CX} y={CY - 4} fontSize={14} textAnchor="middle">
+      <text className="center-name" x={CX} y={CY - 4} fontSize={14 * k} textAnchor="middle">
         {truncate(record.name, 30)}
       </text>
-      <text className="center-sub" x={CX} y={CY + 15} fontSize={11.5} textAnchor="middle">
+      <text className="center-sub" x={CX} y={CY + 15 * k} fontSize={11.5 * k} textAnchor="middle">
         {length.toLocaleString()} bp
       </text>
     </svg>
+    <ZoomControls
+      zoom={view.zoom}
+      min={1}
+      max={ZOOM_MAX}
+      onZoom={(f) => zoomBy(f)}
+      onReset={() => setView({ zoom: 1, cx: CX, cy: CY })}
+      label="circular map"
+    />
+    </div>
   );
+}
+
+// Keep the view inside the drawing.
+function clampView(v: { zoom: number; cx: number; cy: number }) {
+  const hw = W / v.zoom / 2;
+  const hh = H / v.zoom / 2;
+  return {
+    zoom: v.zoom,
+    cx: Math.min(W - hw, Math.max(hw, v.cx)),
+    cy: Math.min(H - hh, Math.max(hh, v.cy)),
+  };
 }
 
 function niceStep(length: number): number {
@@ -422,7 +573,7 @@ interface PlacedLabel extends LabelItem {
 // Place every label on an outer ring. Labels are split by side of the map,
 // sorted top-to-bottom, and pushed apart so none overlap; each keeps a leader
 // line back to its anchor on the ring.
-function layoutLabels(labelItems: LabelItem[]): PlacedLabel[] {
+function layoutLabels(gap: number, labelItems: LabelItem[]): PlacedLabel[] {
   const items = labelItems.map((item) => {
     const natural = polar(CX, CY, R_LABEL, item.angle);
     return {
@@ -439,13 +590,13 @@ function layoutLabels(labelItems: LabelItem[]): PlacedLabel[] {
     const group = items.filter((i) => i.side === side).sort((a, b) => a.y - b.y);
     // forward pass: push down to keep spacing
     for (let i = 1; i < group.length; i++) {
-      group[i].y = Math.max(group[i].y, group[i - 1].y + LABEL_GAP);
+      group[i].y = Math.max(group[i].y, group[i - 1].y + gap);
     }
     // if the stack overflows the bottom, pull it back up
     const overflow = group.length ? group[group.length - 1].y - bottom : 0;
     if (overflow > 0) {
       for (let i = group.length - 1; i >= 0; i--) {
-        const limit = i === group.length - 1 ? bottom : group[i + 1].y - LABEL_GAP;
+        const limit = i === group.length - 1 ? bottom : group[i + 1].y - gap;
         group[i].y = Math.min(group[i].y, limit);
       }
     }
@@ -475,13 +626,13 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-function cutTitle(c: CutSite): string {
+function cutTitle(c: CutSite, length: number, circular: boolean): string {
   const ends =
     c.overhang_type === "blunt" ? "blunt ends" : `${c.overhang_type} overhang ${c.overhang}`;
   const meth = c.methylation.length
     ? ` · overlaps ${c.methylation.map((m) => METHYL_LABELS[m]).join(", ")}`
     : "";
-  return `${c.enzyme} · cuts at ${c.position} · ${ends}${meth}`;
+  return `${c.enzyme} · cuts ${boundaryLabel(c.position, length, circular)} · ${ends}${meth}`;
 }
 
 function labelCoords(f: Feature, length: number): string {
@@ -489,5 +640,5 @@ function labelCoords(f: Feature, length: number): string {
     (sum, [s, e]) => sum + (e >= s ? e - s : length - s + e),
     0,
   );
-  return `${featureCoords(f)}, ${bases}`;
+  return `${featureCoords(f, length)}, ${bases.toLocaleString()}`;
 }

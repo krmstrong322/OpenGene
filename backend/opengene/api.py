@@ -8,6 +8,8 @@ string edits from outside the engine.
 from __future__ import annotations
 
 import logging
+import re
+import time
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict
 from typing import AsyncIterator, Iterator, Literal
@@ -27,7 +29,7 @@ from .core import restriction as restriction_mod
 from .core import search as search_mod
 from .core import sequence as seq_mod
 from .io import files as io_files
-from .models import Feature, PlasmidRecord
+from .models import Feature, HistoryEvent, PlasmidRecord
 from .session import store
 
 log = logging.getLogger(__name__)
@@ -62,6 +64,13 @@ class CreateRequest(BaseModel):
     name: str = "untitled"
     sequence: str
     is_circular: bool = Field(default=True, alias="isCircular")
+    model_config = {"populate_by_name": True}
+
+
+class RecordUpdate(BaseModel):
+    """Partial update of a record's own properties. Only provided fields change."""
+    name: str | None = None
+    is_circular: bool | None = Field(default=None, alias="isCircular")
     model_config = {"populate_by_name": True}
 
 
@@ -140,6 +149,15 @@ def _record_response(record: PlasmidRecord) -> dict:
     return data
 
 
+def _log(record: PlasmidRecord, op: str, description: str) -> None:
+    """Add a line to the record's history for a change that isn't a sequence
+    edit (those are logged by the engine), so the history lists every step
+    that undo can take back."""
+    record.history.append(
+        HistoryEvent(op=op, description=description, timestamp=time.time())
+    )
+
+
 @contextmanager
 def _edit_txn(record_id: str) -> Iterator[tuple[PlasmidRecord, str]]:
     """Serialize a whole edit of one record under its transaction lock.
@@ -194,6 +212,45 @@ def restore_samples() -> dict:
 @app.get("/records/{record_id}")
 def get_record(record_id: str) -> dict:
     return _record_response(_get(record_id))
+
+
+@app.patch("/records/{record_id}")
+def update_record(record_id: str, req: RecordUpdate) -> dict:
+    """Rename a record and/or change its topology (both undoable)."""
+    with _edit_txn(record_id) as (record, pre):
+        try:
+            if req.name is not None:
+                seq_mod.rename_record(record, req.name)
+            if req.is_circular is not None:
+                seq_mod.set_topology(record, req.is_circular)
+        except seq_mod.SequenceError as e:
+            # A half-applied update (renamed, then topology refused) must not
+            # stick: restore the pre-edit state before reporting.
+            restored = PlasmidRecord.model_validate_json(pre)
+            record.name, record.is_circular = restored.name, restored.is_circular
+            record.features, record.primers = restored.features, restored.primers
+            record.history = restored.history
+            raise HTTPException(status_code=409, detail=str(e))
+        if record.model_dump_json() != pre:
+            store.commit(record, pre)
+        return _record_response(record)
+
+
+@app.post("/records/{record_id}/duplicate")
+def duplicate_record(record_id: str) -> dict:
+    """Add an independent copy of a record to the library."""
+    source = _get(record_id)
+    taken = {r.name for r in store.list()}
+    # A copy of "pUC19 copy" is "pUC19 copy 2", not "pUC19 copy copy".
+    base = re.sub(r" copy( \d+)?$", "", source.name) or source.name
+    name = f"{base} copy"
+    k = 2
+    while name in taken:
+        name = f"{base} copy {k}"
+        k += 1
+    copy = seq_mod.duplicate_record(source, name)
+    store.add(copy)
+    return _record_response(copy)
 
 
 @app.delete("/records/{record_id}")
@@ -425,6 +482,7 @@ def design_primers(record_id: str, req: PrimerDesignRequest) -> dict:
         except seq_mod.SequenceError as e:
             raise HTTPException(status_code=422, detail=str(e))
         record.primers.extend([fwd, rev])
+        _log(record, "primers", f"designed primers {fwd.name} and {rev.name}")
         store.commit(record, pre)
         return {
             "forward": fwd.model_dump(by_alias=True),
@@ -445,7 +503,11 @@ def annotate(record_id: str, req: AnnotateRequest) -> dict:
             min_identity=req.min_identity,
             min_coverage=req.min_coverage,
         )
-        store.commit(record, pre)
+        # Finding nothing changes nothing: no history line, no undo step.
+        if record.model_dump_json() != pre:
+            found = f"{len(new)} feature{'' if len(new) == 1 else 's'}"
+            _log(record, "annotate", f"auto-annotated: {found} added")
+            store.commit(record, pre)
         return {
             "added": [f.model_dump() for f in new],
             "record": _record_response(record),
@@ -475,6 +537,7 @@ def add_feature(record_id: str, feature: Feature) -> dict:
     with _edit_txn(record_id) as (record, pre):
         _validate_feature_span(record, feature.start, feature.end)
         record.features.append(feature)
+        _log(record, "feature", f"added feature {feature.name!r}")
         store.commit(record, pre)
         return _record_response(record)
 
@@ -505,6 +568,7 @@ def update_feature(record_id: str, feature_id: str, req: FeatureUpdate) -> dict:
         _validate_feature_span(record, new_start, new_end)
         record.features = [feat.model_copy(update=changes) if f.id == feature_id else f
                            for f in record.features]
+        _log(record, "feature", f"edited feature {changes.get('name', feat.name)!r}")
         store.commit(record, pre)
         return _record_response(record)
 
@@ -512,7 +576,10 @@ def update_feature(record_id: str, feature_id: str, req: FeatureUpdate) -> dict:
 @app.delete("/records/{record_id}/features/{feature_id}")
 def delete_feature(record_id: str, feature_id: str) -> dict:
     with _edit_txn(record_id) as (record, pre):
+        gone = next((f for f in record.features if f.id == feature_id), None)
         record.features = [f for f in record.features if f.id != feature_id]
+        if gone is not None:
+            _log(record, "feature", f"removed feature {gone.name!r}")
         store.commit(record, pre)
         return _record_response(record)
 

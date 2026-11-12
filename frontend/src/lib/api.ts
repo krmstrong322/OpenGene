@@ -59,6 +59,11 @@ export const api = {
   restoreSamples: () =>
     req<{ added: RecordSummary[] }>("/samples/restore", { method: "POST" }),
   getRecord: (id: string) => req<PlasmidRecord>(`/records/${id}`),
+  // Rename a record and/or change its topology (undoable).
+  updateRecord: (id: string, changes: { name?: string; isCircular?: boolean }) =>
+    req<PlasmidRecord>(`/records/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  duplicateRecord: (id: string) =>
+    req<PlasmidRecord>(`/records/${id}/duplicate`, { method: "POST" }),
   deleteRecord: (id: string) =>
     req<{ deleted: string }>(`/records/${id}`, { method: "DELETE" }),
 

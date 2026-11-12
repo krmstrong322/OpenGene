@@ -3,6 +3,7 @@ import { ZoomControls, wheelZoomFactor } from "./ZoomControls";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { METHYL_LABELS, TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
 import { boundaryLabel, rangeLabel, tickLabel } from "../lib/coords";
+import { MAP_KEYS_HINT, mapKeyHandler } from "../lib/mapKeys";
 import { useSize } from "../lib/useSize";
 import { selectionSegments } from "../lib/selection";
 import { spanSegments, stackSpans } from "../lib/geometry";
@@ -242,8 +243,18 @@ export function LinearMap({
       width={width}
       height={totalH}
       style={{ userSelect: "none" }}
-      role="img"
-      aria-label={`Linear map of ${record.name}`}
+      role="application"
+      aria-roledescription="map"
+      aria-label={`Linear map of ${record.name}. ${MAP_KEYS_HINT}`}
+      tabIndex={0}
+      onKeyDown={mapKeyHandler({
+        features: record.features,
+        selection,
+        onSelectFeature,
+        onFeatureMenu,
+        zoomBy: (f) => zoomBy(f),
+        resetZoom: () => setZoom(1),
+      })}
     >
       {/* axis */}
       <line className="backbone" x1={PAD} y1={trackY} x2={width - PAD} y2={trackY} strokeWidth={2} />
@@ -343,6 +354,7 @@ export function LinearMap({
           <g
             key={f.id}
             style={{ cursor: "pointer" }}
+            data-feature-id={f.id}
             onClick={() => onSelectFeature(f)}
             onContextMenu={(e) => {
               if (!onFeatureMenu) return;

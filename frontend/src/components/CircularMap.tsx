@@ -3,6 +3,7 @@ import { ZoomControls, wheelZoomFactor } from "./ZoomControls";
 import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
 import { METHYL_LABELS, TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
 import { boundaryLabel, rangeLabel, tickLabel } from "../lib/coords";
+import { MAP_KEYS_HINT, mapKeyHandler } from "../lib/mapKeys";
 import { useSize } from "../lib/useSize";
 import {
   arcPath,
@@ -258,8 +259,18 @@ export function CircularMap({
         cursor: panning ? "grabbing" : view.zoom > 1 ? "grab" : undefined,
         touchAction: view.zoom > 1 ? "none" : undefined,
       }}
-      role="img"
-      aria-label={`Circular map of ${record.name}`}
+      role="application"
+      aria-roledescription="map"
+      aria-label={`Circular map of ${record.name}. ${MAP_KEYS_HINT}`}
+      tabIndex={0}
+      onKeyDown={mapKeyHandler({
+        features: record.features,
+        selection,
+        onSelectFeature,
+        onFeatureMenu,
+        zoomBy: (f) => zoomBy(f),
+        resetZoom: () => setView({ zoom: 1, cx: CX, cy: CY }),
+      })}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
@@ -386,6 +397,7 @@ export function CircularMap({
             key={f.id}
             opacity={hoveredId && !isActive ? 0.6 : 1}
             style={{ cursor: "pointer" }}
+            data-feature-id={f.id}
             onClick={() => onSelectFeature(f)}
             onContextMenu={(e) => {
               if (!onFeatureMenu) return;
@@ -481,6 +493,7 @@ export function CircularMap({
           <g
             key={l.key}
             style={{ cursor: "pointer" }}
+            data-feature-id={f.id}
             onClick={() => onSelectFeature(f)}
             onContextMenu={(e) => {
               if (!onFeatureMenu) return;

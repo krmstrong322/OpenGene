@@ -112,3 +112,9 @@ export function editErrorMessage(err: unknown): string {
     ? `${msg}\nThe rule for edits inside coding sequences is set under Reading frame in the Edit tab.`
     : msg;
 }
+
+/** "Copied 29 bases" — the confirmation shown after a copy. */
+export function copiedMessage(count: number, what = ""): string {
+  const bases = `${count.toLocaleString()} base${count === 1 ? "" : "s"}`;
+  return what ? `Copied the ${what} of ${bases}.` : `Copied ${bases}.`;
+}

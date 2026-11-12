@@ -60,6 +60,10 @@ interface Props {
   /** A request from elsewhere in the app (the right-click menu) to act here. */
   command: InspectorCommand | null;
   onCommandDone: () => void;
+  /** Confirm that something worked. */
+  onInfo: (msg: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 export type InspectorCommand =
@@ -85,7 +89,7 @@ function useCommand(
   }, [command]);
 }
 
-type Tab = "edit" | "features" | "orfs" | "enzymes" | "primers";
+type Tab = "edit" | "features" | "orfs" | "enzymes" | "primers" | "history";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "edit", label: "Edit" },
@@ -93,6 +97,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "orfs", label: "ORFs" },
   { id: "enzymes", label: "Enzymes" },
   { id: "primers", label: "Primers" },
+  { id: "history", label: "History" },
 ];
 
 export function EditPanel(props: Props) {
@@ -105,12 +110,37 @@ export function EditPanel(props: Props) {
 
   return (
     <aside className="panel">
-      <div className="tabs" role="tablist">
+      {/* One tab stop; the arrow keys move between tabs. */}
+      <div
+        className="tabs"
+        role="tablist"
+        aria-label="Inspector"
+        onKeyDown={(e) => {
+          const i = TABS.findIndex((t) => t.id === tab);
+          const next =
+            e.key === "ArrowRight"
+              ? (i + 1) % TABS.length
+              : e.key === "ArrowLeft"
+                ? (i - 1 + TABS.length) % TABS.length
+                : e.key === "Home"
+                  ? 0
+                  : e.key === "End"
+                    ? TABS.length - 1
+                    : -1;
+          if (next < 0) return;
+          e.preventDefault();
+          setTab(TABS[next].id);
+          document.getElementById(`tab-${TABS[next].id}`)?.focus();
+        }}
+      >
         {TABS.map(({ id, label }) => (
           <button
             key={id}
+            id={`tab-${id}`}
             role="tab"
             aria-selected={tab === id}
+            aria-controls="inspector-panel"
+            tabIndex={tab === id ? 0 : -1}
             className={tab === id ? "tab active" : "tab"}
             onClick={() => setTab(id)}
           >
@@ -118,7 +148,10 @@ export function EditPanel(props: Props) {
           </button>
         ))}
       </div>
-      <div className="tab-body">
+      <div className="tab-body" id="inspector-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+        {tab === "history" && (
+          <HistoryTab record={record} onUndo={props.onUndo} onRedo={props.onRedo} />
+        )}
         {tab === "edit" && <EditTab {...props} />}
         {tab === "features" && <FeaturesTab {...props} />}
         {tab === "orfs" && <OrfsTab record={record} onError={onError} />}
@@ -136,6 +169,80 @@ export function EditPanel(props: Props) {
       </div>
     </aside>
   );
+}
+
+// Every change that can be undone, newest first.
+function HistoryTab({
+  record,
+  onUndo,
+  onRedo,
+}: {
+  record: PlasmidRecord;
+  onUndo: () => void;
+  onRedo: () => void;
+}) {
+  const steps = [...record.history].reverse();
+  return (
+    <div className="stack">
+      <section className="section">
+        <h4 className="section-title">
+          Changes <span className="count">{steps.length}</span>
+        </h4>
+        <div className="row">
+          <button className="btn" onClick={onUndo} disabled={!record.canUndo}>
+            Undo
+          </button>
+          <button className="btn" onClick={onRedo} disabled={!record.canRedo}>
+            Redo
+          </button>
+        </div>
+        {steps.length === 0 ? (
+          <p className="hint" style={{ marginBottom: 0 }}>
+            Nothing has been changed yet. Edits to this record are listed here, newest first,
+            and can be undone one at a time.
+          </p>
+        ) : (
+          !record.canUndo &&
+          !record.canRedo && (
+            <p className="hint" style={{ marginBottom: 0 }}>
+              These changes were made before OpenGene was last started and can no longer be undone.
+            </p>
+          )
+        )}
+        {steps.length > 0 && (
+          <ol className="list history" reversed>
+            {steps.map((h, i) => (
+              <li key={h.id} className={i === 0 ? "latest" : undefined}>
+                <div className="list-row">
+                  <span className="grow history-text">{sentence(h.description)}</span>
+                  <time
+                    className="list-sub"
+                    dateTime={new Date(h.timestamp * 1000).toISOString()}
+                    title={new Date(h.timestamp * 1000).toLocaleString()}
+                  >
+                    {new Date(h.timestamp * 1000).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </time>
+                </div>
+                {h.warnings.map((w, wi) => (
+                  <span key={wi} className="list-sub history-warning">
+                    {sentence(w)}
+                  </span>
+                ))}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// An engine message with a leading capital.
+function sentence(text: string): string {
+  return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
 
 function EditTab({ record, selection, onRecordChange, onError, framePolicy, setFramePolicy }: Props) {
@@ -322,6 +429,7 @@ function FeaturesTab({
   onRecordChange,
   onSelectFeature,
   onError,
+  onInfo,
   command,
   onCommandDone,
 }: Props) {
@@ -367,6 +475,12 @@ function FeaturesTab({
     try {
       const res = await api.annotate(record.id);
       onRecordChange(res.record);
+      const n = res.added.length;
+      onInfo(
+        n
+          ? `Added ${n} feature${n === 1 ? "" : "s"} from the feature library.`
+          : "No new features found in the feature library.",
+      );
     } catch (e) {
       onError((e as Error).message);
     } finally {
@@ -383,6 +497,7 @@ function FeaturesTab({
         strand: 1,
       });
       onRecordChange(r);
+      onInfo(`Added “${name}”.`);
       setName("");
     } catch (e) {
       onError((e as Error).message);

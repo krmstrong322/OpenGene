@@ -14,7 +14,7 @@ import { Toolbar } from "./components/Toolbar";
 import { api } from "./lib/api";
 import { basePos, boundaryLabel, selectionRange } from "./lib/coords";
 import { desktop, textFieldFocused } from "./lib/desktop";
-import { cleanPaste, copyText, editAtSelection, editErrorMessage, pasteProblem } from "./lib/edits";
+import { cleanPaste, copiedMessage, copyText, editAtSelection, editErrorMessage, pasteProblem } from "./lib/edits";
 import { useLayout } from "./lib/layout";
 import { readPref, writePref } from "./lib/prefs";
 import { normalizeSpan, selectionLength, selectionSegments } from "./lib/selection";
@@ -22,6 +22,30 @@ import { reverseComplement } from "./lib/translate";
 import { useTheme } from "./lib/theme";
 import type { CutSite, Feature, FramePolicy, ORF, PlasmidRecord, Selection } from "./lib/types";
 import { TYPE_COLORS } from "./lib/types";
+
+// Where the cursor goes after undo/redo. If the step changed the sequence,
+// the cursor lands at the end of what changed (so typing, undoing and typing
+// again continues in the same place). If it didn't — a feature edit, say —
+// the cursor stays where the selection started.
+function cursorAfterStep(sel: Selection | null, before: string, after: string): Selection | null {
+  if (before !== after) {
+    const max = Math.min(before.length, after.length);
+    let prefix = 0;
+    while (prefix < max && before[prefix] === after[prefix]) prefix++;
+    let suffix = 0;
+    while (
+      suffix < max - prefix &&
+      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+    ) {
+      suffix++;
+    }
+    const at = after.length - suffix;
+    return { start: at, end: at };
+  }
+  if (!sel) return null;
+  const at = Math.min(sel.wrap ? sel.start : Math.min(sel.start, sel.end), after.length);
+  return { start: at, end: at };
+}
 
 interface Toast {
   kind: "error" | "warning" | "info";
@@ -148,8 +172,9 @@ export default function App() {
   const undo = useCallback(async () => {
     if (!record?.canUndo) return;
     try {
-      setRecord(await api.undo(record.id));
-      setSelection(null);
+      const r = await api.undo(record.id);
+      setRecord(r);
+      setSelection((s) => cursorAfterStep(s, record.sequence, r.sequence));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -158,8 +183,9 @@ export default function App() {
   const redo = useCallback(async () => {
     if (!record?.canRedo) return;
     try {
-      setRecord(await api.redo(record.id));
-      setSelection(null);
+      const r = await api.redo(record.id);
+      setRecord(r);
+      setSelection((s) => cursorAfterStep(s, record.sequence, r.sequence));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -350,11 +376,19 @@ export default function App() {
       );
     }
     out.push(
-      { label: "Copy", hint: `${MOD}C`, disabled: !hasRange, run: () => void copyText(bases) },
+      {
+        label: "Copy",
+        hint: `${MOD}C`,
+        disabled: !hasRange,
+        run: () => void copyText(bases).then(() => inform(copiedMessage(bases.length))),
+      },
       {
         label: "Copy reverse complement",
         disabled: !hasRange,
-        run: () => void copyText(reverseComplement(bases)),
+        run: () =>
+          void copyText(reverseComplement(bases)).then(() =>
+            inform(copiedMessage(bases.length, "reverse complement")),
+          ),
       },
       {
         label: hasRange ? "Paste over selection" : "Paste",
@@ -780,6 +814,7 @@ export default function App() {
                     onRecordChange={setRecord}
                     onError={setError}
                     onWarning={warn}
+                    onInfo={inform}
                     onMenu={openMenu}
                   />
               )}
@@ -800,6 +835,9 @@ export default function App() {
             setFramePolicy={setFramePolicy}
             command={command}
             onCommandDone={() => setCommand(null)}
+            onInfo={inform}
+            onUndo={undo}
+            onRedo={redo}
           />
         </main>
       )}
@@ -857,6 +895,9 @@ function StatusBar({
     for (const c of record.sequence) if (c === "G" || c === "C" || c === "g" || c === "c") n++;
     return (100 * n) / record.sequence.length;
   }, [record?.sequence]);
+  const selectedFeature = selection?.featureId
+    ? record?.features.find((f) => f.id === selection.featureId)
+    : undefined;
   const online = status.startsWith("backend ") && status !== "backend offline";
 
   return (
@@ -877,12 +918,16 @@ function StatusBar({
           </span>
           {gc !== null && <span className="item hide-sm">GC {gc.toFixed(1)}%</span>}
           <span className="spacer" />
-          {selection && (
-            <span className="item sel">
-              <i className="swatch" />
-              {describeSelection(selection, record.length, record.isCircular)}
-            </span>
-          )}
+          {/* Always present, so screen readers announce each new selection. */}
+          <span className="item sel" aria-live="polite" aria-atomic="true">
+            {selection && (
+              <>
+                <i className="swatch" />
+                {selectedFeature ? `${selectedFeature.name} · ` : ""}
+                {describeSelection(selection, record.length, record.isCircular)}
+              </>
+            )}
+          </span>
         </>
       )}
     </footer>

@@ -80,7 +80,7 @@ def test_linearizing_refuses_feature_across_origin(client):
     # Nothing from the refused update sticks, the rename included.
     assert after["isCircular"] is True
     assert after["name"] == "t"
-    assert after["history"] == []
+    assert [h["op"] for h in after["history"]] == ["feature"]
 
 
 def test_linearizing_keeps_feature_ending_at_origin(client):
@@ -111,3 +111,18 @@ def test_duplicate_is_independent(client):
 
 def test_update_unknown_record(client):
     assert client.patch("/records/nope", json={"name": "x"}).status_code == 404
+
+
+def test_history_lists_every_undoable_step(client):
+    rid = _create(client)["id"]
+    rec = _add_feature(client, rid, 2, 8, name="site")
+    fid = rec["features"][0]["id"]
+    client.patch(f"/records/{rid}/features/{fid}", json={"name": "site 2"})
+    client.post(f"/records/{rid}/insert", json={"position": 0, "sequence": "AAA"})
+    client.delete(f"/records/{rid}/features/{fid}")
+    history = client.get(f"/records/{rid}").json()["history"]
+    assert [h["op"] for h in history] == ["feature", "feature", "insert", "feature"]
+    assert "site 2" in history[1]["description"]
+    # Undo takes the last step back off the list.
+    after = client.post(f"/records/{rid}/undo").json()
+    assert len(after["history"]) == 3 and len(after["features"]) == 1

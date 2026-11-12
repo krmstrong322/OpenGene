@@ -36,10 +36,14 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const open = async (id: string) => {
+    if (openingId) return;
+    setOpeningId(id);
     try {
       onOpen(await api.getRecord(id));
     } catch (e) {
+      setOpeningId(null);
       onError((e as Error).message);
     }
   };
@@ -98,13 +102,20 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
   const header = (key: SortKey, label: string, className = "") => (
     <th
       className={`sortable ${className}`}
-      onClick={() =>
-        setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "name" }))
-      }
       aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined}
     >
-      {label}
-      <span className="arrow">{sort.key === key ? (sort.desc ? "↓" : "↑") : ""}</span>
+      <button
+        className="sort-btn"
+        title={`Sort by ${label.toLowerCase()}`}
+        onClick={() =>
+          setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "name" }))
+        }
+      >
+        {label}
+        <span className="arrow" aria-hidden="true">
+          {sort.key === key ? (sort.desc ? "↓" : "↑") : ""}
+        </span>
+      </button>
     </th>
   );
 
@@ -154,12 +165,26 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
           </thead>
           <tbody>
             {shown?.map((r) => (
-              <tr key={r.id} onClick={() => confirmId !== r.id && open(r.id)}>
+              <tr
+                key={r.id}
+                className={openingId === r.id ? "opening" : undefined}
+                aria-busy={openingId === r.id}
+                onClick={() => confirmId !== r.id && open(r.id)}
+              >
                 <td>
-                  <span className="name-cell" title={r.name}>
+                  {/* A real button, so a record can be reached and opened from the keyboard. */}
+                  <button
+                    className="name-cell"
+                    title={`Open ${r.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void open(r.id);
+                    }}
+                  >
                     <TopologyIcon circular={r.isCircular} />
-                    {r.name}
-                  </span>
+                    <span className="name-text">{r.name}</span>
+                    {openingId === r.id && <span className="muted opening-note">Opening…</span>}
+                  </button>
                 </td>
                 <td className="right">{r.length.toLocaleString()} bp</td>
                 <td className="muted hide-sm">

@@ -13,8 +13,10 @@ import { api } from "../lib/api";
 import { FindBar } from "./FindBar";
 import { boundaryLabel, selectionRange } from "../lib/coords";
 import { textFieldFocused } from "../lib/desktop";
+import { readPref, writePref } from "../lib/prefs";
 import {
   cleanPaste,
+  copiedMessage,
   copyText,
   editAtSelection,
   editErrorMessage,
@@ -48,9 +50,13 @@ interface Props {
   onError: (msg: string) => void;
   /** Report something the engine did that the user should know about (not a failure). */
   onWarning?: (msg: string) => void;
+  /** Confirm that something worked ("Copied 29 bases"). */
+  onInfo?: (msg: string) => void;
   /** Open the right-click menu at a point (over `feature`, if on a feature bar). */
   onMenu?: (x: number, y: number, feature?: Feature) => void;
 }
+
+const HINT_SEEN_KEY = "opengene.seqHintSeen";
 
 // Vertical layout of one sequence line, in px.
 const ROW = 18; // a strand or translation row
@@ -316,7 +322,9 @@ export function SequencePane(props: Props) {
         <button
           className="btn btn-ghost btn-sm"
           disabled={!selected}
-          onClick={() => void copyText(selected)}
+          onClick={() =>
+            void copyText(selected).then(() => props.onInfo?.(copiedMessage(selected.length)))
+          }
           title="Copy the selected bases (Ctrl/⌘+C in the sequence)"
         >
           <Copy size={13} /> Copy
@@ -324,7 +332,11 @@ export function SequencePane(props: Props) {
         <button
           className="btn btn-ghost btn-sm"
           disabled={!selected}
-          onClick={() => void copyText(reverseComplement(selected))}
+          onClick={() =>
+            void copyText(reverseComplement(selected)).then(() =>
+              props.onInfo?.(copiedMessage(selected.length, "reverse complement")),
+            )
+          }
           title="Copy the reverse complement of the selection"
         >
           <Copy size={13} /> Rev. comp.
@@ -348,6 +360,13 @@ export function SequencePane(props: Props) {
 
 function SelectionBar({ record, selection }: { record: PlasmidRecord; selection: Selection | null }) {
   const [info, setInfo] = useState<SelectionInfo | null>(null);
+  const [hintSeen, setHintSeen] = useState(() => readPref(HINT_SEEN_KEY) === "1");
+  useEffect(() => {
+    if (selection && !hintSeen) {
+      writePref(HINT_SEEN_KEY, "1");
+      setHintSeen(true);
+    }
+  }, [selection, hintSeen]);
   const segs = selectionSegments(selection, record.length);
   const hasRange = segs.length > 0;
   const start = selection?.wrap ? selection.start : Math.min(selection?.start ?? 0, selection?.end ?? 0);
@@ -371,9 +390,13 @@ function SelectionBar({ record, selection }: { record: PlasmidRecord; selection:
   }, [record.id, record.sequence, hasRange, start, end, featureId]);
 
   if (!selection) {
+    // The how-to is for newcomers: once someone has made a selection on this
+    // computer it gives way to a plain "nothing selected".
     return (
       <div className="seq-info muted">
-        Click to place the cursor, then type or paste bases. Drag to select; right-click for more.
+        {hintSeen
+          ? "Nothing selected"
+          : "Click to place the cursor, then type or paste bases. Drag to select; right-click for more."}
       </div>
     );
   }

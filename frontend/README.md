@@ -79,9 +79,23 @@ window are imported — one file opens, several go to the library — and the
 import button accepts several files too. The record that was open is reopened
 on the next launch (`opengene.lastRecord` in `localStorage`).
 
+**Keyboard.** Everything reachable with the mouse is reachable without it.
+Library rows are buttons (Enter opens) and the column headers sort. Each map is
+one tab stop: the arrow keys step through its features in sequence order
+(Home / End for the first and last), Enter or the menu key opens the selected
+feature's menu, and + / − / 0 zoom (`lib/mapKeys.ts`). The inspector's tabs
+follow the usual tab pattern (arrow keys move between them). The status bar's
+selection read-out is a live region, so each selection is announced with the
+feature's name.
+
+**History.** The inspector's History tab lists every change that can be
+undone, newest first, with any warning the engine raised, and has Undo / Redo
+buttons. After undo or redo the cursor returns to where the sequence changed.
+
 **Messages.** One toast at a time: errors stay until dismissed; engine
 warnings (a frameshift that was allowed, primers dropped) and confirmations
-clear themselves.
+clear themselves. Actions that leave no visible trace confirm themselves
+("Copied 720 bases", "Added 3 features from the feature library").
 
 **Direct editing.** With a cursor in the sequence view, typing a base
 (A/C/G/T or an IUPAC code) inserts it; typed over a selection it replaces the

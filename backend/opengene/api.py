@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict
 from typing import AsyncIterator, Iterator, Literal
@@ -28,7 +29,7 @@ from .core import restriction as restriction_mod
 from .core import search as search_mod
 from .core import sequence as seq_mod
 from .io import files as io_files
-from .models import Feature, PlasmidRecord
+from .models import Feature, HistoryEvent, PlasmidRecord
 from .session import store
 
 log = logging.getLogger(__name__)
@@ -146,6 +147,15 @@ def _record_response(record: PlasmidRecord) -> dict:
     data["canUndo"] = store.can_undo(record.id)
     data["canRedo"] = store.can_redo(record.id)
     return data
+
+
+def _log(record: PlasmidRecord, op: str, description: str) -> None:
+    """Add a line to the record's history for a change that isn't a sequence
+    edit (those are logged by the engine), so the history lists every step
+    that undo can take back."""
+    record.history.append(
+        HistoryEvent(op=op, description=description, timestamp=time.time())
+    )
 
 
 @contextmanager
@@ -472,6 +482,7 @@ def design_primers(record_id: str, req: PrimerDesignRequest) -> dict:
         except seq_mod.SequenceError as e:
             raise HTTPException(status_code=422, detail=str(e))
         record.primers.extend([fwd, rev])
+        _log(record, "primers", f"designed primers {fwd.name} and {rev.name}")
         store.commit(record, pre)
         return {
             "forward": fwd.model_dump(by_alias=True),
@@ -492,7 +503,11 @@ def annotate(record_id: str, req: AnnotateRequest) -> dict:
             min_identity=req.min_identity,
             min_coverage=req.min_coverage,
         )
-        store.commit(record, pre)
+        # Finding nothing changes nothing: no history line, no undo step.
+        if record.model_dump_json() != pre:
+            found = f"{len(new)} feature{'' if len(new) == 1 else 's'}"
+            _log(record, "annotate", f"auto-annotated: {found} added")
+            store.commit(record, pre)
         return {
             "added": [f.model_dump() for f in new],
             "record": _record_response(record),
@@ -522,6 +537,7 @@ def add_feature(record_id: str, feature: Feature) -> dict:
     with _edit_txn(record_id) as (record, pre):
         _validate_feature_span(record, feature.start, feature.end)
         record.features.append(feature)
+        _log(record, "feature", f"added feature {feature.name!r}")
         store.commit(record, pre)
         return _record_response(record)
 
@@ -552,6 +568,7 @@ def update_feature(record_id: str, feature_id: str, req: FeatureUpdate) -> dict:
         _validate_feature_span(record, new_start, new_end)
         record.features = [feat.model_copy(update=changes) if f.id == feature_id else f
                            for f in record.features]
+        _log(record, "feature", f"edited feature {changes.get('name', feat.name)!r}")
         store.commit(record, pre)
         return _record_response(record)
 
@@ -559,7 +576,10 @@ def update_feature(record_id: str, feature_id: str, req: FeatureUpdate) -> dict:
 @app.delete("/records/{record_id}/features/{feature_id}")
 def delete_feature(record_id: str, feature_id: str) -> dict:
     with _edit_txn(record_id) as (record, pre):
+        gone = next((f for f in record.features if f.id == feature_id), None)
         record.features = [f for f in record.features if f.id != feature_id]
+        if gone is not None:
+            _log(record, "feature", f"removed feature {gone.name!r}")
         store.commit(record, pre)
         return _record_response(record)
 

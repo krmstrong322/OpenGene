@@ -37,7 +37,8 @@ function nameHits(record: PlasmidRecord, query: string): SearchHit[] {
     }
   }
   for (const p of record.primers) {
-    if (p.name.toLowerCase().includes(q)) {
+    // Only a primer that binds has somewhere to go to.
+    if (p.name.toLowerCase().includes(q) && p.bindStart !== null && p.bindEnd !== null) {
       hits.push({ start: p.bindStart, end: p.bindEnd, strand: p.strand, mismatches: 0, label: `primer ${p.name}` });
     }
   }

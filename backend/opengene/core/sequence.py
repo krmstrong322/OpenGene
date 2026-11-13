@@ -21,6 +21,7 @@ from Bio.Seq import Seq
 from ..models import (
     VALID_BASES,
     Feature,
+    Primer,
     FeatureType,
     HistoryEvent,
     PlasmidRecord,
@@ -371,32 +372,102 @@ def _frame_shifts(
     return shifts
 
 
-def _invalidate_primers(record: PlasmidRecord, a: int, b: int) -> list[str]:
-    """Drop primers a length-changing edit of ``[a, b)`` would leave stale, and
-    return their names.
+# --------------------------------------------------------------------------
+# Primers: saved oligos whose binding site is looked up, not stored by hand
+# --------------------------------------------------------------------------
 
-    Primer bindings are not remapped through edits, so only those lying entirely
-    upstream of a linear edit (``bind_end <= a``, non-wrapping) keep valid
-    coordinates and are kept. Anything overlapping or downstream of the edit —
-    and everything when the edit wraps the origin — is dropped, so no primer is
-    ever shown or clicked at a coordinate that no longer matches the sequence.
+# The shortest 3' stretch of a primer that is accepted as annealing. A primer
+# with a 5' tail (a restriction site, an overlap for assembly) or a mismatch
+# near its 5' end still primes from its 3' end; shorter than this, a match is
+# as likely chance as intent.
+MIN_ANNEAL = 15
+
+
+def _occurrences(haystack: str, needle: str, limit: int) -> list[int]:
+    """Start indexes below ``limit`` at which ``needle`` occurs (overlaps included)."""
+    out: list[int] = []
+    i = haystack.find(needle)
+    while i != -1 and i < limit:
+        out.append(i)
+        i = haystack.find(needle, i + 1)
+    return out
+
+
+def locate_primer(
+    sequence: str, circular: bool, primer_seq: str, near: int | None = None
+) -> tuple[int, int, int, int] | None:
+    """Where ``primer_seq`` anneals in ``sequence``.
+
+    Returns ``(start, end, strand, sites)``: the annealed bases as a
+    ``[start, end)`` span on the top strand (``start > end`` when it wraps the
+    origin), the strand the primer reads along, and how many places match.
+    ``None`` if it anneals nowhere.
+
+    The whole oligo is tried first, then ever-shorter 3' ends down to
+    ``MIN_ANNEAL`` — the 3' end is what the polymerase extends, so a 5' tail
+    doesn't stop a primer binding. The longest match wins; among equal matches
+    the one nearest ``near`` (the previous site) is chosen, so an edit
+    elsewhere never makes a primer jump to a different copy of its site.
     """
-    if not record.primers:
-        return []
-    if a > b:  # edit wraps the origin: the whole coordinate frame shifts
-        dropped = [p.name for p in record.primers]
-        record.primers = []
-        return dropped
-    kept: list = []
-    dropped: list[str] = []
-    for p in record.primers:
-        non_wrapping = p.bind_start <= p.bind_end and p.bind_end != 0
-        if non_wrapping and p.bind_end <= a:
-            kept.append(p)
+    n = len(sequence)
+    p = primer_seq.upper()
+    if not n or not p:
+        return None
+    shortest = min(len(p), MIN_ANNEAL)
+    for k in range(min(len(p), n), shortest - 1, -1):
+        # A circular template is searched through the origin as well.
+        template = sequence + sequence[: k - 1] if circular else sequence
+        three_prime = p[-k:]
+        hits = [(i, 1) for i in _occurrences(template, three_prime, n)]
+        hits += [(i, -1) for i in _occurrences(template, reverse_complement(three_prime), n)]
+        if not hits:
+            continue
+        if near is None:
+            start, strand = min(hits)
         else:
-            dropped.append(p.name)
-    record.primers = kept
-    return dropped
+            def distance(hit: tuple[int, int]) -> int:
+                d = abs(hit[0] - near)
+                return min(d, n - d) if circular else d
+
+            start, strand = min(hits, key=lambda h: (distance(h), h))
+        end = start + k
+        return start, end % n if end > n else end, strand, len(hits)
+    return None
+
+
+def bind_primer(record: PlasmidRecord, primer: Primer) -> Primer:
+    """``primer`` with its binding site looked up in ``record``."""
+    found = locate_primer(record.sequence, record.is_circular, primer.sequence, primer.bind_start)
+    if found is None:
+        return primer.model_copy(
+            update={"bind_start": None, "bind_end": None, "binding_sites": 0}
+        )
+    start, end, strand, sites = found
+    return primer.model_copy(
+        update={"bind_start": start, "bind_end": end, "strand": strand, "binding_sites": sites}
+    )
+
+
+def rebind_primers(record: PlasmidRecord) -> list[str]:
+    """Look every primer up again after the sequence changed.
+
+    Primers are never dropped: one whose site moved follows it, one whose site
+    was edited away stays in the list as "doesn't bind". Returns warnings for
+    primers that have just stopped binding.
+    """
+    lost: list[str] = []
+    rebound: list[Primer] = []
+    for p in record.primers:
+        q = bind_primer(record, p)
+        if p.is_bound and not q.is_bound:
+            lost.append(p.name)
+        rebound.append(q)
+    record.primers = rebound
+    if not lost:
+        return []
+    names = ", ".join(sorted(lost))
+    verb = "primer" if len(lost) == 1 else "primers"
+    return [f"{verb} {names} no longer bind{'s' if len(lost) == 1 else ''} this sequence"]
 
 
 # Messages are read by people, so they number bases from 1 and give ranges
@@ -458,15 +529,10 @@ def _apply_edit(
                 f"{problem}, so it would shift the reading frame. Use a multiple "
                 "of 3 bp, or choose to pad the insert or allow the frameshift."
             )
-    dropped_primers = _invalidate_primers(record, a, b)
     removed = _edit_raw(record, a, b, seq)
     if removed:
         warnings.append(f"removed {_names(removed)}: the edit covered it entirely")
-    if dropped_primers:
-        warnings.append(
-            f"dropped primers {', '.join(sorted(dropped_primers))}: their binding "
-            "sites shifted or changed; re-design against the edited sequence"
-        )
+    warnings.extend(rebind_primers(record))
     return seq, warnings
 
 
@@ -532,7 +598,7 @@ def mutate(record: PlasmidRecord, position: int, new_base: str) -> PlasmidRecord
         record.sequence[:position] + new_base + record.sequence[position + 1:]
     )
     _record_history(
-        record, "mutate", f"{old}>{new_base} at base {position + 1}"
+        record, "mutate", f"{old}>{new_base} at base {position + 1}", rebind_primers(record)
     )
     return record
 
@@ -593,13 +659,8 @@ def reverse_complement_record(record: PlasmidRecord) -> PlasmidRecord:
             )
         )
     record.features = flipped
-    warnings: list[str] = []
-    if record.primers:
-        warnings.append(
-            f"dropped primers {', '.join(sorted(p.name for p in record.primers))}: "
-            "reverse-complement changes the strand they bind; re-design if needed"
-        )
-        record.primers = []
+    # Primers find their sites again on the flipped sequence (on the other strand).
+    warnings = rebind_primers(record)
     _record_history(record, "reverse_complement", "reverse-complemented record", warnings)
     return record
 
@@ -645,7 +706,7 @@ def set_topology(record: PlasmidRecord, circular: bool) -> PlasmidRecord:
     Closing a linear record is always possible. Opening a circular one at its
     origin is refused while a feature spans the origin — it would have no
     single place on the linear molecule — so nothing is silently cut in two.
-    Primers that bind across the origin are dropped, with a warning.
+    A primer that binds across the origin stays in the list but no longer binds.
     """
     if record.is_circular == circular:
         return record
@@ -669,19 +730,10 @@ def set_topology(record: PlasmidRecord, circular: bool) -> PlasmidRecord:
             else f
             for f in record.features
         ]
-        kept = []
-        dropped = []
-        for p in record.primers:
-            if p.bind_start > p.bind_end and p.bind_end != 0:
-                dropped.append(p.name)
-            else:
-                kept.append(p)
-        if dropped:
-            record.primers = kept
-            warnings.append(
-                f"dropped primers {', '.join(sorted(dropped))}: they bind across the origin"
-            )
     record.is_circular = circular
+    # A site across the origin exists only on the circle; closing a linear
+    # record can also create one.
+    warnings.extend(rebind_primers(record))
     _record_history(
         record, "topology", f"made {'circular' if circular else 'linear'}", warnings
     )

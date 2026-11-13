@@ -167,7 +167,7 @@ export const api = {
     }),
 
   designPrimers: (id: string, regionStart: number, regionEnd: number, targetTm = 60) =>
-    req<{ forward: Primer; reverse: Primer }>(`/records/${id}/design_primers`, {
+    req<{ forward: Primer; reverse: Primer; record: PlasmidRecord }>(`/records/${id}/design_primers`, {
       method: "POST",
       body: JSON.stringify({
         region_start: regionStart,
@@ -175,6 +175,33 @@ export const api = {
         target_tm: targetTm,
       }),
     }),
+
+  // Saved primers: oligos kept with a record.
+  addPrimer: (id: string, name: string, sequence: string) =>
+    req<PlasmidRecord>(`/records/${id}/primers`, {
+      method: "POST",
+      body: JSON.stringify({ name, sequence }),
+    }),
+  updatePrimer: (id: string, primerId: string, changes: { name?: string; sequence?: string }) =>
+    req<PlasmidRecord>(`/records/${id}/primers/${primerId}`, {
+      method: "PATCH",
+      body: JSON.stringify(changes),
+    }),
+  deletePrimer: (id: string, primerId: string) =>
+    req<PlasmidRecord>(`/records/${id}/primers/${primerId}`, { method: "DELETE" }),
+  // `text` is FASTA or one "name, sequence" per line.
+  importPrimers: (id: string, text: string) =>
+    req<{ added: string[]; skipped: string[]; record: PlasmidRecord }>(
+      `/records/${id}/primers/import`,
+      { method: "POST", body: JSON.stringify({ text }) },
+    ),
+  // One record's primers, or (without an id) every primer in the library.
+  exportPrimers: async (fmt: "csv" | "fasta", id?: string): Promise<Blob> => {
+    const path = id ? `/records/${id}/primers/export` : "/primers/export";
+    const res = await fetch(`${BASE}${path}?fmt=${fmt}`, { headers: auth() });
+    if (!res.ok) throw await failure(res, "export failed");
+    return res.blob();
+  },
 
   annotate: (
     id: string,

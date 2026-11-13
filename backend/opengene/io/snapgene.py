@@ -145,13 +145,17 @@ def _primers_xml(record: PlasmidRecord) -> bytes:
     for i, p in enumerate(record.primers):
         # Primer binding sites are written shifted: 0-based start, 0-based
         # inclusive end (Biopython's reader undoes the same shift).
-        last = (p.bind_end - 1) % record.length if record.length else 0
-        site = (
-            f"<BindingSite location={_attr(f'{p.bind_start}-{last}')} "
-            f'boundStrand="{0 if p.strand == 1 else 1}" '
-            f"annealedBases={_attr(p.sequence)} "
-            f'meltingTemperature="{round(p.tm)}"/>'
-        )
+        # A saved primer that no longer binds is still written — it is the
+        # user's oligo — just without a site.
+        site = ""
+        if p.is_bound and record.length:
+            last = (p.bind_end - 1) % record.length
+            site = (
+                f"<BindingSite location={_attr(f'{p.bind_start}-{last}')} "
+                f'boundStrand="{0 if p.strand == 1 else 1}" '
+                f"annealedBases={_attr(p.sequence)} "
+                f'meltingTemperature="{round(p.tm)}"/>'
+            )
         primers.append(
             f"<Primer recentID={_attr(i)} name={_attr(p.name)} "
             f"sequence={_attr(p.sequence)}>{site}</Primer>"

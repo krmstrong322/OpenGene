@@ -13,11 +13,15 @@ export const EXPORT_FORMATS: [string, string, string][] = [
 
 export async function exportRecord(record: { id: string; name: string }, format: string): Promise<void> {
   const ext = EXPORT_FORMATS.find(([f]) => f === format)?.[2] ?? format;
-  const blob = await api.exportFile(record.id, format);
+  saveBlob(await api.exportFile(record.id, format), `${record.name}.${ext}`);
+}
+
+/** Hand a file the engine produced to the browser's download. */
+export function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${record.name}.${ext}`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();

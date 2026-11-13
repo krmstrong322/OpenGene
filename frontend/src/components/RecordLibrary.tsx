@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { Copy, Search, Trash2 } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Copy, Download, Search, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
-import type { PlasmidRecord, RecordSummary } from "../lib/types";
+import { saveBlob } from "../lib/exports";
+import { readPref, writePref } from "../lib/prefs";
+import { primerBinding } from "../lib/primers";
+import type { PlasmidRecord, PrimerSummary, RecordSummary } from "../lib/types";
+import { Menu } from "./Menu";
 
 interface Props {
-  onOpen: (r: PlasmidRecord) => void;
+  /** Open a record; with `primerId`, go straight to that primer in it. */
+  onOpen: (r: PlasmidRecord, primerId?: string) => void;
   onNew: () => void;
   onImport: () => void;
   onError: (msg: string) => void;
@@ -12,8 +17,20 @@ interface Props {
 
 type SortKey = "name" | "length" | "featureCount" | "updatedAt";
 
-// The start screen: every plasmid saved on this computer, as a sortable table
-// (most recently edited first by default).
+const EXPANDED_KEY = "opengene.libraryExpanded";
+
+function readExpanded(): Set<string> {
+  try {
+    const v = JSON.parse(readPref(EXPANDED_KEY) ?? "[]");
+    return new Set(Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+// The start screen: every sequence saved on this computer, as a sortable tree
+// (most recently edited first by default). A sequence opens out to show the
+// primers saved with it; a primer opens its sequence at its binding site.
 export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
   const [rows, setRows] = useState<RecordSummary[] | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -37,11 +54,24 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
   }, []);
 
   const [openingId, setOpeningId] = useState<string | null>(null);
-  const open = async (id: string) => {
+  // Which sequences are opened out, remembered between visits.
+  const [expanded, setExpanded] = useState<Set<string>>(readExpanded);
+  const setOpen = (ids: string[], isOpen: boolean) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (isOpen) next.add(id);
+        else next.delete(id);
+      }
+      writePref(EXPANDED_KEY, JSON.stringify([...next]));
+      return next;
+    });
+
+  const open = async (id: string, primerId?: string) => {
     if (openingId) return;
     setOpeningId(id);
     try {
-      onOpen(await api.getRecord(id));
+      onOpen(await api.getRecord(id), primerId);
     } catch (e) {
       setOpeningId(null);
       onError((e as Error).message);
@@ -88,7 +118,20 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
   const shown = useMemo(() => {
     if (!rows) return null;
     const q = query.trim().toLowerCase();
-    const list = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : [...rows];
+    const bases = q.replace(/[^a-z]/g, "");
+    const matches = (p: PrimerSummary) =>
+      p.name.toLowerCase().includes(q) ||
+      (bases.length >= 4 && /^[acgt]+$/.test(bases) && p.sequence.toLowerCase().includes(bases));
+    // A sequence is listed if its name matches, or one of its primers does —
+    // in which case it is opened out to just the primers that match.
+    const list = rows
+      .map((r) => {
+        if (!q) return { ...r, found: null as PrimerSummary[] | null };
+        const found = r.primers.filter(matches);
+        if (r.name.toLowerCase().includes(q)) return { ...r, found: found.length ? found : null };
+        return found.length ? { ...r, found } : null;
+      })
+      .filter((r) => r !== null);
     const dir = sort.desc ? -1 : 1;
     list.sort((a, b) => {
       const x = a[sort.key];
@@ -98,6 +141,16 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
     });
     return list;
   }, [rows, query, sort]);
+
+  const primerTotal = rows?.reduce((n, r) => n + r.primers.length, 0) ?? 0;
+  const withPrimers = rows?.filter((r) => r.primers.length > 0).map((r) => r.id) ?? [];
+  const allOpen = withPrimers.length > 0 && withPrimers.every((id) => expanded.has(id));
+
+  const exportPrimers = (fmt: "csv" | "fasta") =>
+    api
+      .exportPrimers(fmt)
+      .then((blob) => saveBlob(blob, `OpenGene primers.${fmt}`))
+      .catch((e) => onError((e as Error).message));
 
   const header = (key: SortKey, label: string, className = "") => (
     <th
@@ -125,17 +178,44 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
         <div className="library-bar">
           <h1>Library</h1>
           {rows && rows.length > 0 && <span className="muted">{rows.length}</span>}
+          {withPrimers.length > 0 && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setOpen(withPrimers, !allOpen)}
+              title={allOpen ? "Hide every sequence's primers" : "Show every sequence's primers"}
+            >
+              {allOpen ? "Collapse all" : "Expand all"}
+            </button>
+          )}
           <span className="spacer" />
           <div className="search">
             <Search size={13} />
             <input
               className="input"
-              placeholder="Filter by name"
+              placeholder="Filter sequences and primers"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              aria-label="Filter plasmids by name"
+              aria-label="Filter by sequence name, primer name or primer sequence"
             />
           </div>
+          {primerTotal > 0 && (
+            <Menu
+              label={
+                <>
+                  <Download size={13} /> Primers
+                </>
+              }
+              buttonClass="btn"
+              title="Save every primer in the library to one file"
+            >
+              <button className="menu-item" onClick={() => exportPrimers("csv")}>
+                Spreadsheet <span className="menu-sub">.csv</span>
+              </button>
+              <button className="menu-item" onClick={() => exportPrimers("fasta")}>
+                FASTA <span className="menu-sub">.fasta</span>
+              </button>
+            </Menu>
+          )}
           <button
             className="btn"
             onClick={restoreSamples}
@@ -159,19 +239,42 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
               {header("length", "Length", "right")}
               <th className="hide-sm">Topology</th>
               {header("featureCount", "Features", "right hide-md")}
+              <th className="right hide-md">Primers</th>
               {header("updatedAt", "Modified", "hide-sm")}
               <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
-            {shown?.map((r) => (
+            {shown?.map((r) => {
+              // While filtering, a match among the primers opens the sequence out.
+              const isOpen = r.found ? true : expanded.has(r.id);
+              const children = r.found ?? r.primers;
+              return (
+              <Fragment key={r.id}>
               <tr
-                key={r.id}
                 className={openingId === r.id ? "opening" : undefined}
                 aria-busy={openingId === r.id}
                 onClick={() => confirmId !== r.id && open(r.id)}
               >
                 <td>
+                  <span className="tree-cell">
+                  {r.primers.length > 0 ? (
+                    <button
+                      className="twisty"
+                      aria-expanded={isOpen}
+                      aria-label={`${isOpen ? "Hide" : "Show"} the primers of ${r.name}`}
+                      title={isOpen ? "Hide primers" : `Show ${r.primers.length} primer${r.primers.length === 1 ? "" : "s"}`}
+                      disabled={!!r.found}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpen([r.id], !isOpen);
+                      }}
+                    >
+                      {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    </button>
+                  ) : (
+                    <span className="twisty" aria-hidden="true" />
+                  )}
                   {/* A real button, so a record can be reached and opened from the keyboard. */}
                   <button
                     className="name-cell"
@@ -186,12 +289,14 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
                     <span className="name-text">{r.name}</span>
                     {openingId === r.id && <span className="muted opening-note">Opening…</span>}
                   </button>
+                  </span>
                 </td>
                 <td className="right">{r.length.toLocaleString()} bp</td>
                 <td className="muted hide-sm">
                   {r.hasTrace ? "Trace" : r.isCircular ? "Circular" : "Linear"}
                 </td>
                 <td className="right hide-md">{r.featureCount}</td>
+                <td className="right hide-md">{r.primers.length || ""}</td>
                 <td className="muted hide-sm" title={new Date(r.updatedAt * 1000).toLocaleString()}>
                   {formatDate(r.updatedAt)}
                 </td>
@@ -228,7 +333,44 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
                   )}
                 </td>
               </tr>
-            ))}
+              {isOpen &&
+                children.map((p) => {
+                  const binding = primerBinding(p, r.length);
+                  return (
+                    <tr key={p.id} className="child" onClick={() => open(r.id, p.id)}>
+                      <td>
+                        <span className="tree-cell child">
+                          <button
+                            className="name-cell"
+                            title={`Open ${r.name} at primer ${p.name}`}
+                            aria-label={`Open ${r.name} at primer ${p.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void open(r.id, p.id);
+                            }}
+                          >
+                            <span className={`primer-arrow${p.strand === -1 ? " rev" : ""}`} aria-hidden="true" />
+                            <span className="name-text">{p.name}</span>
+                          </button>
+                          <code className="primer-seq" title={p.sequence}>
+                            {p.sequence}
+                          </code>
+                        </span>
+                      </td>
+                      <td className="right muted">{p.sequence.length} nt</td>
+                      <td className="muted hide-sm">Tm {p.tm.toFixed(1)} °C</td>
+                      <td className="hide-md" />
+                      <td className="hide-md" />
+                      <td className={binding.warn ? "warn-text hide-sm" : "muted hide-sm"} title={binding.detail}>
+                        {binding.text}
+                      </td>
+                      <td />
+                    </tr>
+                  );
+                })}
+              </Fragment>
+              );
+            })}
           </tbody>
         </table>
 
@@ -245,7 +387,7 @@ export function RecordLibrary({ onOpen, onNew, onImport, onError }: Props) {
         )}
 
         <p className="library-foot">
-          {notice ?? "Plasmids are saved on this computer automatically. Drop files anywhere on this window to import them."}
+          {notice ?? "Sequences and their primers are saved on this computer automatically. Drop files anywhere on this window to import them."}
         </p>
       </div>
     </main>

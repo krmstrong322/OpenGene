@@ -18,6 +18,7 @@ import { cleanPaste, copiedMessage, copyText, editAtSelection, editErrorMessage,
 import { exportRecord } from "./lib/exports";
 import { useLayout } from "./lib/layout";
 import { readPref, writePref } from "./lib/prefs";
+import { isBound } from "./lib/primers";
 import { normalizeSpan, selectionLength, selectionSegments } from "./lib/selection";
 import { reverseComplement } from "./lib/translate";
 import { useTheme } from "./lib/theme";
@@ -160,11 +161,11 @@ export default function App() {
   }, [record?.id, record?.sequence, showOrfs, minOrfAa]);
 
   // Primer overlay spans, with terminal linear endpoints normalized the same
-  // way (the record's primers are the source of truth; the backend drops any
-  // that a sequence edit would make stale).
+  // way. Only primers that bind are drawn; the engine looks each saved
+  // primer's site up again after every edit.
   const displayPrimers = useMemo(() => {
     if (!record) return [];
-    return record.primers.map((p) => {
+    return record.primers.filter(isBound).map((p) => {
       const s = normalizeSpan(p.bindStart, p.bindEnd, record.length, record.isCircular);
       return { ...p, bindStart: s.start, bindEnd: s.end };
     });
@@ -311,7 +312,6 @@ export default function App() {
 
   // ----- right-click menu (sequence view and both maps) -----
   const [menu, setMenu] = useState<{ x: number; y: number; featureId?: string } | null>(null);
-  const [command, setCommand] = useState<InspectorCommand | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const openMenu = useCallback(
     (x: number, y: number, f?: Feature) => {
@@ -426,9 +426,24 @@ export default function App() {
   };
 
   // ----- opening, closing and managing records -----
-  const openRecord = useCallback((r: PlasmidRecord) => {
-    setSelection(null);
+  // A request for the inspector to act (from a menu, or from the library).
+  const [command, setCommand] = useState<InspectorCommand | null>(null);
+  // Open a record — and, when it was reached through one of its primers in
+  // the library, go straight to that primer: its site selected, the Primers
+  // tab showing it.
+  const openRecord = useCallback((r: PlasmidRecord, primerId?: string) => {
+    const primer = primerId ? r.primers.find((p) => p.id === primerId) : undefined;
+    setSelection(
+      primer && isBound(primer)
+        ? {
+            start: primer.bindStart,
+            end: primer.bindEnd,
+            wrap: r.isCircular && primer.bindEnd < primer.bindStart,
+          }
+        : null,
+    );
     setRecord(r);
+    if (primer) setCommand({ kind: "show-primer", primerId: primer.id });
     writePref(LAST_RECORD_KEY, r.id);
   }, []);
 
@@ -700,7 +715,7 @@ export default function App() {
                               checked={showPrimers}
                               onChange={(e) => setShowPrimers(e.target.checked)}
                             />
-                            Primers <span className="muted num">{record.primers.length}</span>
+                            Primers <span className="muted num">{displayPrimers.length}</span>
                           </label>
                           <label className="check">
                             <input
@@ -828,6 +843,7 @@ export default function App() {
             cutSites={cutSites}
             onRecordChange={setRecord}
             onSelectFeature={selectFeatureById}
+            onSelectRange={selectRange}
             onError={setError}
             onReloadCutSites={reloadCutSites}
             enzymeInput={enzymeInput}

@@ -119,6 +119,22 @@ class PrimerDesignRequest(BaseModel):
     target_tm: float = 60.0
 
 
+class PrimerCreate(BaseModel):
+    name: str
+    sequence: str
+
+
+class PrimerUpdate(BaseModel):
+    """Partial update for a saved primer. Only provided fields change."""
+    name: str | None = None
+    sequence: str | None = None
+
+
+class PrimerImport(BaseModel):
+    """Pasted text or a file's contents: FASTA, or one "name, sequence" per line."""
+    text: str
+
+
 class AnnotateRequest(BaseModel):
     replace_existing: bool = False
     min_identity: float = 0.80
@@ -487,13 +503,125 @@ def design_primers(record_id: str, req: PrimerDesignRequest) -> dict:
             )
         except seq_mod.SequenceError as e:
             raise HTTPException(status_code=422, detail=str(e))
+        # Look the pair up like any saved primer, so their binding data (site
+        # count included) is filled in the same way.
+        fwd, rev = seq_mod.bind_primer(record, fwd), seq_mod.bind_primer(record, rev)
         record.primers.extend([fwd, rev])
-        _log(record, "primers", f"designed primers {fwd.name} and {rev.name}")
+        _log(record, "primers", f"designed primers {fwd.name!r} and {rev.name!r}")
         store.commit(record, pre)
         return {
             "forward": fwd.model_dump(by_alias=True),
             "reverse": rev.model_dump(by_alias=True),
+            "record": _record_response(record),
         }
+
+
+# --------------------------------------------------------------------------
+# Saved primers
+# --------------------------------------------------------------------------
+
+@app.post("/records/{record_id}/primers")
+def add_primer(record_id: str, req: PrimerCreate) -> dict:
+    """Save an oligo with this record. Its binding site is looked up."""
+    with _edit_txn(record_id) as (record, pre):
+        try:
+            primer = primers_mod.make_primer(record, req.name, req.sequence)
+        except seq_mod.SequenceError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        primer = primer.model_copy(update={"name": primers_mod.unique_name(record, primer.name)})
+        record.primers.append(primer)
+        _log(record, "primers", f"added primer {primer.name!r}")
+        store.commit(record, pre)
+        return _record_response(record)
+
+
+@app.post("/records/{record_id}/primers/import")
+def import_primers(record_id: str, req: PrimerImport) -> dict:
+    """Add primers from pasted text or a file. Rows that can't be read as a
+    primer are reported, and don't stop the others."""
+    with _edit_txn(record_id) as (record, pre):
+        added: list[str] = []
+        skipped: list[str] = []
+        for name, sequence in primers_mod.parse_primer_list(req.text):
+            try:
+                primer = primers_mod.make_primer(record, name, sequence)
+            except seq_mod.SequenceError as e:
+                skipped.append(f"{name}: {e}")
+                continue
+            primer = primer.model_copy(update={"name": primers_mod.unique_name(record, primer.name)})
+            record.primers.append(primer)
+            added.append(primer.name)
+        if not added and not skipped:
+            raise HTTPException(
+                status_code=422,
+                detail="no primers found: use FASTA, or one primer per line as name, sequence",
+            )
+        if added:
+            _log(record, "primers", f"imported {len(added)} primer{'' if len(added) == 1 else 's'}")
+            store.commit(record, pre)
+        return {"added": added, "skipped": skipped, "record": _record_response(record)}
+
+
+@app.get("/records/{record_id}/primers/export")
+def export_primers(record_id: str, fmt: str = "csv") -> Response:
+    record = _get(record_id)
+    return _primers_response([(record.name, record, p) for p in record.primers], fmt, f"{record.name} primers")
+
+
+@app.get("/primers/export")
+def export_all_primers(fmt: str = "csv") -> Response:
+    """Every saved primer in the library, with the sequence it belongs to."""
+    records = sorted(store.list(), key=lambda r: r.name.lower())
+    return _primers_response(
+        [(r.name, r, p) for r in records for p in r.primers], fmt, "OpenGene primers"
+    )
+
+
+def _primers_response(rows: list, fmt: str, name: str) -> Response:
+    try:
+        body, ext, media = primers_mod.primers_table(rows, fmt)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return Response(
+        body, media_type=media, headers={"Content-Disposition": _attachment(name, ext)}
+    )
+
+
+@app.patch("/records/{record_id}/primers/{primer_id}")
+def update_primer(record_id: str, primer_id: str, req: PrimerUpdate) -> dict:
+    """Rename a primer or change its sequence (Tm, GC and binding follow)."""
+    with _edit_txn(record_id) as (record, pre):
+        old = next((p for p in record.primers if p.id == primer_id), None)
+        if old is None:
+            raise HTTPException(status_code=404, detail=f"primer {primer_id} not found")
+        try:
+            new = old
+            if req.sequence is not None:
+                new = primers_mod.make_primer(record, old.name, req.sequence).model_copy(
+                    update={"id": old.id}
+                )
+            if req.name is not None:
+                name = primers_mod.unique_name(record, primers_mod.clean_name(req.name), old.id)
+                new = new.model_copy(update={"name": name})
+        except seq_mod.SequenceError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        if new != old:
+            record.primers = [new if p.id == primer_id else p for p in record.primers]
+            _log(record, "primers", f"edited primer {new.name!r}")
+            store.commit(record, pre)
+        return _record_response(record)
+
+
+@app.delete("/records/{record_id}/primers/{primer_id}")
+def delete_primer(record_id: str, primer_id: str) -> dict:
+    with _edit_txn(record_id) as (record, pre):
+        gone = next((p for p in record.primers if p.id == primer_id), None)
+        if gone is None:
+            raise HTTPException(status_code=404, detail=f"primer {primer_id} not found")
+        record.primers = [p for p in record.primers if p.id != primer_id]
+        _log(record, "primers", f"removed primer {gone.name!r}")
+        store.commit(record, pre)
+        return _record_response(record)
 
 
 # --------------------------------------------------------------------------

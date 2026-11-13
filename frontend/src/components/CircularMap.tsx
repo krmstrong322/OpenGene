@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZoomControls, wheelZoomFactor } from "./ZoomControls";
-import type { CutSite, Feature, ORF, PlasmidRecord, Primer, Selection } from "../lib/types";
+import type { CutSite, Feature, ORF, PlasmidRecord, Selection } from "../lib/types";
+import type { BoundPrimer } from "../lib/primers";
 import { METHYL_LABELS, TYPE_COLORS, featureCoords, featureSpans } from "../lib/types";
 import { boundaryLabel, rangeLabel, tickLabel } from "../lib/coords";
 import { MAP_KEYS_HINT, mapKeyHandler } from "../lib/mapKeys";
@@ -23,7 +24,7 @@ interface Props {
   onFeatureMenu?: (x: number, y: number, f: Feature) => void;
   onHover: (featureId: string | null) => void;
   hoveredId: string | null;
-  primers?: Primer[];
+  primers?: BoundPrimer[];
   orfs?: ORF[];
   onSelectRange?: (sel: Selection) => void;
 }

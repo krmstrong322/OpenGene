@@ -91,6 +91,21 @@ rows as they need (up to eight; a site that still can't be named keeps its
 mark and tooltip), and the ruler's numbers sit below it, so the two can't
 collide. The circular map names cut sites only up to 40 of them.
 
+**Saved primers.** A primer is an oligo saved with a sequence: its name and
+bases are the user's, and where it binds is looked up by the engine after
+every edit (the whole oligo first, then its 3′ end, so a 5′ tail doesn't stop
+it binding). Primers are never dropped: one whose site moves follows it, one
+whose site is edited away stays in the list as "doesn't bind". The Primers tab
+lists them with Tm, GC and site, and adds, edits, removes, imports (FASTA or
+one `name, sequence` per line) and exports (CSV, FASTA) them; all of it is
+undoable. `lib/primers.ts` words the binding for display.
+
+**Library tree.** The library lists each sequence with a twisty that opens it
+out to its primers. A primer row opens the sequence at that primer's site. The
+filter matches sequence names, primer names and primer bases; which sequences
+are opened out is remembered. Every primer in the library can be exported to
+one file.
+
 **Records.** The open record's name in the title bar is editable in place;
 the menu beside it changes topology (circular ↔ linear) and duplicates the
 record. Rename and topology changes are undoable. Files dropped anywhere on the

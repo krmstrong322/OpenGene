@@ -284,7 +284,8 @@ def test_list_records_is_a_light_summary_newest_first(client):
     rows = client.get("/records").json()
     assert [r["id"] for r in rows] == [a["id"], b["id"]]  # a was edited last
     assert set(rows[0]) == {
-        "id", "name", "length", "isCircular", "featureCount", "hasTrace", "createdAt", "updatedAt"
+        "id", "name", "length", "isCircular", "featureCount", "primers", "hasTrace", "createdAt",
+        "updatedAt",
     }
     assert rows[0]["length"] == 11
 

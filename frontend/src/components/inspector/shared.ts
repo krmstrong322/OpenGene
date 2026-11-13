@@ -37,6 +37,8 @@ export interface Props {
   cutSites: CutSite[];
   onRecordChange: (r: PlasmidRecord) => void;
   onSelectFeature: (id: string) => void;
+  /** Select a span (a primer's binding site, say) in every view. */
+  onSelectRange: (sel: Selection) => void;
   onError: (msg: string) => void;
   onReloadCutSites: (enzymes: string[]) => void;
   enzymeInput: string;
@@ -55,7 +57,8 @@ export interface Props {
 export type InspectorCommand =
   | { kind: "new-feature" }
   | { kind: "edit-feature"; featureId: string }
-  | { kind: "design-primers" };
+  | { kind: "design-primers" }
+  | { kind: "show-primer"; primerId: string };
 
 // Run `handle` once for each new command. The ref survives StrictMode's
 // double-invoked effects, so a command is never acted on twice.

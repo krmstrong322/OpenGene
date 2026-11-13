@@ -7,6 +7,7 @@ export function Menu({
   buttonClass,
   title,
   align = "right",
+  disabled = false,
   children,
 }: {
   label: ReactNode;
@@ -14,6 +15,7 @@ export function Menu({
   title: string;
   /** Which edge of the button the dropdown lines up with. */
   align?: "left" | "right";
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -40,6 +42,7 @@ export function Menu({
         onClick={() => setOpen((v) => !v)}
         title={title}
         aria-label={title}
+        disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
       >

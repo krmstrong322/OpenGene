@@ -150,13 +150,145 @@ def design_primer_pair(
     rev_seq = best_rc
 
     fwd = Primer(
-        name="fwd", sequence=fwd_seq,
+        name=unique_name(record, f"fwd {region_start % n + 1}"), sequence=fwd_seq,
         bindStart=region_start % n, bindEnd=(region_start + len(fwd_seq)) % n,
         strand=1, tm=round(fwd_tm, 2), gcContent=gc_content(fwd_seq),
     )
     rev = Primer(
-        name="rev", sequence=rev_seq,
+        name=unique_name(record, f"rev {region_end % n or n}"), sequence=rev_seq,
         bindStart=(region_end - len(rev_seq)) % n, bindEnd=region_end % n,
         strand=-1, tm=round(best_tm, 2), gcContent=gc_content(rev_seq),
     )
     return fwd, rev
+
+
+# --------------------------------------------------------------------------
+# Saved primers: the oligos that belong to a record
+# --------------------------------------------------------------------------
+
+MAX_PRIMER_LENGTH = 200
+MAX_PRIMER_NAME = 80
+
+
+def clean_name(name: str) -> str:
+    name = " ".join(name.split())
+    if not name:
+        raise SequenceError("a primer needs a name")
+    if len(name) > MAX_PRIMER_NAME:
+        raise SequenceError(f"a primer name can be at most {MAX_PRIMER_NAME} characters")
+    return name
+
+
+def unique_name(record: PlasmidRecord, wanted: str, ignore_id: str | None = None) -> str:
+    """``wanted``, or ``wanted 2``, ``wanted 3``… if a primer already has that name."""
+    taken = {p.name for p in record.primers if p.id != ignore_id}
+    if wanted not in taken:
+        return wanted
+    k = 2
+    while f"{wanted} {k}" in taken:
+        k += 1
+    return f"{wanted} {k}"
+
+
+def clean_oligo(sequence: str) -> str:
+    """A primer sequence as typed or pasted: spaces, digits and 5'/3' marks are
+    dropped; what is left must be definite bases."""
+    seq = "".join(c for c in sequence.upper() if c.isalpha())
+    seq = validate_sequence(seq)
+    if not seq:
+        raise SequenceError("a primer needs a sequence")
+    if len(seq) > MAX_PRIMER_LENGTH:
+        raise SequenceError(f"a primer can be at most {MAX_PRIMER_LENGTH} nt")
+    _require_acgt(seq)
+    return seq
+
+
+def make_primer(record: PlasmidRecord, name: str, sequence: str) -> Primer:
+    """A new primer for ``record``, with its Tm, GC and binding site worked out."""
+    from .sequence import bind_primer
+
+    seq = clean_oligo(sequence)
+    primer = Primer(
+        name=clean_name(name),
+        sequence=seq,
+        tm=round(primer3.calc_tm(seq), 2),
+        gcContent=gc_content(seq),
+    )
+    return bind_primer(record, primer)
+
+
+def parse_primer_list(text: str) -> list[tuple[str, str]]:
+    """``(name, sequence)`` pairs from pasted text or a file.
+
+    Accepts FASTA (``>name`` then the sequence) or a table with one primer per
+    line — name and sequence separated by a tab, comma or semicolon, as
+    exported by spreadsheets and oligo order forms. A header row and extra
+    columns are ignored. A line holding only a sequence gets a numbered name.
+    """
+    lines = [ln.strip() for ln in text.replace("\r", "\n").split("\n")]
+    lines = [ln for ln in lines if ln]
+    out: list[tuple[str, str]] = []
+    if any(ln.startswith(">") for ln in lines):
+        name, chunks = None, []
+        for ln in lines + [">"]:
+            if ln.startswith(">"):
+                if name is not None and chunks:
+                    out.append((name, "".join(chunks)))
+                name, chunks = ln[1:].strip() or f"primer {len(out) + 1}", []
+            elif name is not None:
+                chunks.append(ln)
+        return out
+    for ln in lines:
+        cells = [c.strip().strip('"') for c in _split_row(ln)]
+        cells = [c for c in cells if c]
+        if not cells:
+            continue
+        # The sequence is the first cell that reads as bases; the name is the
+        # cell before it (or a number, if the line is a bare sequence).
+        idx = next((i for i, c in enumerate(cells) if _looks_like_oligo(c)), None)
+        if idx is None:
+            continue  # a header row, or a line with no sequence
+        name = cells[idx - 1] if idx > 0 else f"primer {len(out) + 1}"
+        out.append((name, cells[idx]))
+    return out
+
+
+def _split_row(line: str) -> list[str]:
+    for sep in ("\t", ";", ","):
+        if sep in line:
+            return line.split(sep)
+    parts = line.rsplit(None, 1)  # "name sequence"
+    return parts if len(parts) == 2 else [line]
+
+
+def _looks_like_oligo(cell: str) -> bool:
+    letters = "".join(c for c in cell.upper() if c.isalpha())
+    spaced = cell.replace(" ", "").replace("-", "").replace("'", "")
+    return len(letters) >= 6 and set(letters) <= set("ACGT") and all(
+        c.isalpha() or c.isdigit() for c in spaced
+    )
+
+
+def primers_table(rows: list[tuple[str, PlasmidRecord, Primer]], fmt: str) -> tuple[str, str, str]:
+    """Write primers out as ``csv`` or ``fasta``; ``rows`` are
+    ``(record_name, record, primer)``. Returns (text, extension, media type)."""
+    import csv
+    import io
+
+    if fmt == "fasta":
+        body = "".join(f">{p.name}\n{p.sequence}\n" for _, _, p in rows)
+        return body, "fasta", "text/x-fasta"
+    if fmt != "csv":
+        raise ValueError(f"unknown primer format {fmt!r}; use csv or fasta")
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["Name", "Sequence (5'-3')", "Length (nt)", "Tm (C)", "GC (%)", "Template", "Binds", "Strand"])
+    for record_name, record, p in rows:
+        if p.is_bound:
+            last = p.bind_end if p.bind_end else record.length
+            binds = f"{p.bind_start + 1}-{last}"
+            strand = "+" if p.strand == 1 else "-"
+        else:
+            binds, strand = "does not bind", ""
+        w.writerow([p.name, p.sequence, len(p.sequence), p.tm, p.gc_content, record_name, binds, strand])
+    return buf.getvalue(), "csv", "text/csv"

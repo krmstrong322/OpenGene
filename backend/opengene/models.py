@@ -149,8 +149,16 @@ class Primer(BaseModel):
     # How many places in the record the annealing part matches (1 is what you
     # want; more means the primer is not specific).
     binding_sites: int = Field(default=1, alias="bindingSites")
+    # Melting temperature of the whole oligo.
     tm: float
     gc_content: float = Field(alias="gcContent")
+    # Melting temperature of the part that anneals to this record — lower than
+    # ``tm`` for a primer with a 5' tail, and the number that matters for the
+    # first PCR cycles. ``None`` while the primer doesn't bind.
+    anneal_tm: Optional[float] = Field(default=None, alias="annealTm")
+    # What is wrong with the oligo itself, if anything (strong hairpin or
+    # self-dimer, GC content or length out of range, GC-heavy 3' end).
+    warnings: list[str] = Field(default_factory=list)
 
     @property
     def is_bound(self) -> bool:

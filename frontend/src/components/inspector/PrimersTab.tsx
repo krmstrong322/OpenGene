@@ -59,11 +59,16 @@ export function PrimersTab({
     onSelectRange({ start: p.bindStart, end: p.bindEnd });
   };
 
-  const design = () =>
+  const design = (mode: "exact" | "flank" = "exact") =>
     run(async () => {
-      const res = await api.designPrimers(record.id, selLo, selHi);
+      const res = await api.designPrimers(record.id, selLo, selHi, mode);
+      if (res.warnings.length) {
+        onError(`Designed a pair (${res.productSize} bp), but:\n${res.warnings.join("\n")}`);
+      } else {
+        onInfo(`Designed and saved a primer pair (${res.productSize} bp product).`);
+      }
       return res.record;
-    }, "Designed and saved a primer pair.");
+    });
 
   useCommand(command, onCommandDone, (c) => {
     if (c.kind === "design-primers") {
@@ -235,8 +240,16 @@ export function PrimersTab({
                     <>
                       <code className="primer-seq">{p.sequence}</code>
                       <span className="list-sub">
-                        {p.sequence.length} nt · Tm {p.tm.toFixed(1)} °C · GC {Math.round(p.gcContent)}%
+                        {p.sequence.length} nt · Tm {p.tm.toFixed(1)} °C
+                        {binding.bound && p.annealTm != null && Math.abs(p.annealTm - p.tm) >= 0.5 &&
+                          ` (anneal ${p.annealTm.toFixed(1)} °C)`}{" "}
+                        · GC {Math.round(p.gcContent)}%
                       </span>
+                      {p.warnings && p.warnings.length > 0 && (
+                        <span className="list-sub warn-text" title="Flagged by primer analysis">
+                          ⚠ {p.warnings.join(" · ")}
+                        </span>
+                      )}
                     </>
                   )}
                 </li>
@@ -318,9 +331,28 @@ export function PrimersTab({
       <section className="section">
         <h4 className="section-title">Design a pair</h4>
         {hasRange ? (
-          <button className="btn" onClick={design}>
-            Design primers for {rangeLabel(selLo, selHi, record.length)}
-          </button>
+          <>
+            <p className="hint">
+              primer3 scores Tm, GC, 3′ stability, hairpins and dimers over{" "}
+              {rangeLabel(selLo, selHi, record.length)} and saves the best pair.
+            </p>
+            <div className="row">
+              <button
+                className="btn"
+                onClick={() => design("exact")}
+                title="The product is exactly the selected region (primers sit at its ends)"
+              >
+                Amplify exactly
+              </button>
+              <button
+                className="btn"
+                onClick={() => design("flank")}
+                title="The product contains the region; primers may sit outside it for a better pair"
+              >
+                Amplify across
+              </button>
+            </div>
+          </>
         ) : (
           <p className="hint" style={{ marginBottom: 0 }}>
             Select the region to amplify in the sequence or on a map; the pair is saved with this

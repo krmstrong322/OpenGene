@@ -14,7 +14,6 @@ from ..models import PlasmidRecord, Primer
 from .sequence import (
     SequenceError,
     gc_content,
-    reverse_complement,
     slice_circular,
     validate_sequence,
 )
@@ -47,7 +46,48 @@ class PrimerAnalysis:
     warnings: list[str] = field(default_factory=list)
 
 
-def analyze_primer(seq: str, target_tm: float = 60.0) -> PrimerAnalysis:
+# Thresholds used when judging an oligo. They are the usual rules of thumb for
+# PCR primers; the thermodynamics behind them (nearest-neighbour Tm, hairpin
+# and dimer stability) come from primer3.
+GC_RANGE = (40.0, 60.0)
+LENGTH_RANGE = (18, 30)
+STRUCTURE_TM_LIMIT = 45.0  # a hairpin or dimer above this competes with annealing
+PAIR_TM_DIFFERENCE_LIMIT = 3.0
+MAX_END_GC = 3  # G/C allowed in the last five bases before the 3' end is "sticky"
+
+
+def _longest_run(seq: str) -> int:
+    best = run = 0
+    prev = ""
+    for b in seq:
+        run = run + 1 if b == prev else 1
+        best = max(best, run)
+        prev = b
+    return best
+
+
+def oligo_warnings(seq: str) -> list[str]:
+    """What is wrong with an oligo in itself, whatever it is used on."""
+    hairpin = primer3.calc_hairpin(seq)
+    homodimer = primer3.calc_homodimer(seq)
+    gc = gc_content(seq)
+    warnings: list[str] = []
+    if hairpin.structure_found and hairpin.tm > STRUCTURE_TM_LIMIT:
+        warnings.append(f"strong hairpin (Tm {hairpin.tm:.1f}C)")
+    if homodimer.structure_found and homodimer.tm > STRUCTURE_TM_LIMIT:
+        warnings.append(f"strong self-dimer (Tm {homodimer.tm:.1f}C)")
+    if not GC_RANGE[0] <= gc <= GC_RANGE[1]:
+        warnings.append(f"GC content {gc}% outside {GC_RANGE[0]:.0f}-{GC_RANGE[1]:.0f}%")
+    if not LENGTH_RANGE[0] <= len(seq) <= LENGTH_RANGE[1]:
+        warnings.append(f"length {len(seq)} outside {LENGTH_RANGE[0]}-{LENGTH_RANGE[1]} nt")
+    if sum(1 for b in seq[-5:] if b in "GC") > MAX_END_GC:
+        warnings.append(f"GC clamp too strong (>{MAX_END_GC} G/C in last 5 nt)")
+    if _longest_run(seq) > 4:
+        warnings.append(f"run of {_longest_run(seq)} identical bases")
+    return warnings
+
+
+def analyze_primer(seq: str, target_tm: float | None = 60.0) -> PrimerAnalysis:
     """Compute Tm, GC, and structural warnings for a single oligo."""
     seq = validate_sequence(seq)
     tm = round(_tm(seq, "primer"), 2)
@@ -55,20 +95,9 @@ def analyze_primer(seq: str, target_tm: float = 60.0) -> PrimerAnalysis:
     homodimer = primer3.calc_homodimer(seq)
     gc = gc_content(seq)
 
-    warnings: list[str] = []
-    if hairpin.structure_found and hairpin.tm > 45:
-        warnings.append(f"strong hairpin (Tm {hairpin.tm:.1f}C)")
-    if homodimer.structure_found and homodimer.tm > 45:
-        warnings.append(f"strong self-dimer (Tm {homodimer.tm:.1f}C)")
-    if gc < 40 or gc > 60:
-        warnings.append(f"GC content {gc}% outside 40-60%")
-    if not (18 <= len(seq) <= 30):
-        warnings.append(f"length {len(seq)} outside 18-30 nt")
-    if abs(tm - target_tm) > 5:
+    warnings = oligo_warnings(seq)
+    if target_tm is not None and abs(tm - target_tm) > 5:
         warnings.append(f"Tm {tm}C far from target {target_tm}C")
-    last5 = seq[-5:]
-    if sum(1 for b in last5 if b in "GC") >= 4:
-        warnings.append("GC clamp too strong (>=4 G/C in last 5 nt)")
 
     return PrimerAnalysis(
         sequence=seq,
@@ -89,25 +118,22 @@ def heterodimer_tm(seq_a: str, seq_b: str) -> float:
     return round(res.tm, 2) if res.structure_found else 0.0
 
 
-def _grow_primer(
-    template: str, start: int, length_min: int, length_max: int, target_tm: float,
-) -> tuple[str, float]:
-    """Extend an oligo from ``start`` until its Tm reaches ``target_tm``."""
-    best_seq = template[start:start + length_min]
-    best_tm = _tm(best_seq, "forward primer site")
-    for ln in range(length_min, length_max + 1):
-        candidate = template[start:start + ln]
-        if len(candidate) < length_min:
-            break
-        if set(candidate) - set("ACGT"):
-            break  # can't grow through an ambiguous base; keep the best so far
-        tm = primer3.calc_tm(candidate)
-        if abs(tm - target_tm) < abs(best_tm - target_tm):
-            best_seq, best_tm = candidate, tm
-        if tm >= target_tm:
-            best_seq, best_tm = candidate, tm
-            break
-    return best_seq, round(best_tm, 2)
+@dataclass
+class PrimerPair:
+    forward: Primer
+    reverse: Primer
+    product_size: int
+    # Things about the *pair* the user should know: a Tm mismatch, a dimer
+    # between the two, or that no pair met the usual criteria here.
+    warnings: list[str] = field(default_factory=list)
+
+
+MIN_PRODUCT = 60  # shorter than this leaves no room for two primers
+FLANK = 250  # how far outside the selection a flanking primer may sit
+
+
+def _run_primer3(seq_args: dict, global_args: dict) -> dict:
+    return primer3.design_primers(seq_args, global_args)
 
 
 def design_primer_pair(
@@ -115,51 +141,168 @@ def design_primer_pair(
     region_start: int,
     region_end: int,
     target_tm: float = 60.0,
-    min_len: int = 18,
-    max_len: int = 30,
-) -> tuple[Primer, Primer]:
-    """Design forward/reverse primers flanking ``[region_start, region_end)``.
+    mode: str = "exact",
+) -> PrimerPair:
+    """Design a PCR primer pair for ``[region_start, region_end)`` with primer3.
 
-    The forward primer binds the top strand starting at ``region_start``; the
-    reverse primer is the reverse-complement of the top strand ending at
-    ``region_end``.
+    ``mode`` says what the product should be:
+
+    * ``"exact"`` — the product is exactly the region (cloning a gene, say):
+      the primers start at its two ends and primer3 chooses how long each
+      should be.
+    * ``"flank"`` — the product contains the region (checking an insert, or
+      sequencing across it): primer3 searches up to ``FLANK`` bp either side
+      for the best-placed pair.
+
+    primer3 scores every candidate on Tm against the target, GC content, 3'
+    end stability, hairpins and self-dimers, and each pair on Tm match and
+    cross-dimers. If nothing passes its limits the least-bad pair is returned
+    with warnings saying what is wrong with it.
     """
+    if mode not in ("exact", "flank"):
+        raise SequenceError(f"unknown design mode {mode!r}; use 'exact' or 'flank'")
     seq = record.sequence
     n = len(seq)
+    if n == 0:
+        raise SequenceError("there is no sequence to design primers on")
+    start = region_start % n
+    if region_start == region_end:
+        length = 0  # a cursor, not a span
+    elif region_end > region_start:
+        length = region_end - region_start
+    elif record.is_circular:
+        length = n - region_start + region_end  # the region wraps the origin
+    else:
+        length = 0
+    if length <= 0 or length > n:
+        raise SequenceError("select the region to amplify first")
+    if length < MIN_PRODUCT:
+        raise SequenceError(
+            f"select at least {MIN_PRODUCT} bp: a shorter product leaves no room for two primers"
+        )
 
-    fwd_template = slice_circular(seq, region_start, region_start + max_len) \
-        if record.is_circular else seq[region_start:region_start + max_len]
-    fwd_seq, fwd_tm = _grow_primer(fwd_template, 0, min_len, max_len, target_tm)
+    # A linear window onto the record with the region ``offset`` bases in, so a
+    # region (or a flank) that crosses the origin of a circle is contiguous.
+    if record.is_circular:
+        flank = min(FLANK, (n - length) // 2) if mode == "flank" else 0
+        lo = (start - flank) % n
+        window = slice_circular(seq + seq, lo, lo + length + 2 * flank)
+        offset = flank
+    else:
+        flank = FLANK if mode == "flank" else 0
+        lo = max(0, start - flank)
+        hi = min(n, start + length + flank)
+        window = seq[lo:hi]
+        offset = start - lo
+    # primer3 handles A, C, G, T and N; other IUPAC codes become N, which it
+    # will not place a primer over.
+    template = "".join(b if b in "ACGT" else "N" for b in window)
 
-    # Reverse primer: take top-strand bases ending at region_end, then revcomp.
-    rev_region = slice_circular(seq, region_end - max_len, region_end) \
-        if record.is_circular else seq[max(0, region_end - max_len):region_end]
-    first = reverse_complement(rev_region[-min_len:])
-    best_rc, best_tm = first, _tm(first, "reverse primer site")
-    for ln in range(min_len, max_len + 1):
-        top = rev_region[-ln:] if ln <= len(rev_region) else rev_region
-        cand = reverse_complement(top)
-        if set(cand) - set("ACGT"):
-            break  # can't grow through an ambiguous base; keep the best so far
-        tm = primer3.calc_tm(cand)
-        if abs(tm - target_tm) < abs(best_tm - target_tm):
-            best_rc, best_tm = cand, tm
-        if tm >= target_tm:
-            best_rc, best_tm = cand, round(tm, 2)
-            break
-    rev_seq = best_rc
+    seq_args: dict = {"SEQUENCE_ID": record.name or "record", "SEQUENCE_TEMPLATE": template}
+    if mode == "exact":
+        seq_args["SEQUENCE_FORCE_LEFT_START"] = offset
+        seq_args["SEQUENCE_FORCE_RIGHT_START"] = offset + length - 1
+        product_range = [[length, length]]
+    else:
+        seq_args["SEQUENCE_TARGET"] = [offset, length]
+        product_range = [[length, len(template)]]
 
+    strict = {
+        "PRIMER_NUM_RETURN": 1,
+        "PRIMER_PRODUCT_SIZE_RANGE": product_range,
+        "PRIMER_MIN_SIZE": LENGTH_RANGE[0],
+        "PRIMER_OPT_SIZE": 20,
+        "PRIMER_MAX_SIZE": LENGTH_RANGE[1],
+        "PRIMER_OPT_TM": target_tm,
+        "PRIMER_MIN_TM": target_tm - 3,
+        "PRIMER_MAX_TM": target_tm + 3,
+        "PRIMER_PAIR_MAX_DIFF_TM": PAIR_TM_DIFFERENCE_LIMIT,
+        "PRIMER_MIN_GC": GC_RANGE[0],
+        "PRIMER_MAX_GC": GC_RANGE[1],
+        "PRIMER_MAX_END_GC": MAX_END_GC,
+        "PRIMER_MAX_POLY_X": 4,
+        "PRIMER_MAX_NS_ACCEPTED": 0,
+        "PRIMER_MAX_HAIRPIN_TH": STRUCTURE_TM_LIMIT,
+        "PRIMER_MAX_SELF_ANY_TH": STRUCTURE_TM_LIMIT,
+        "PRIMER_MAX_SELF_END_TH": STRUCTURE_TM_LIMIT,
+        "PRIMER_PAIR_MAX_COMPL_ANY_TH": STRUCTURE_TM_LIMIT,
+        "PRIMER_PAIR_MAX_COMPL_END_TH": STRUCTURE_TM_LIMIT,
+    }
+    result = _run_primer3(seq_args, strict)
+    relaxed = False
+    if not result.get("PRIMER_PAIR_NUM_RETURNED"):
+        # Nothing passes the usual limits here. Ask for the least-bad pair
+        # instead, and carry the reasons back as warnings.
+        relaxed = True
+        result = _run_primer3(
+            seq_args,
+            {
+                **strict,
+                "PRIMER_PICK_ANYWAY": 1,
+                "PRIMER_MIN_TM": target_tm - 15,
+                "PRIMER_MAX_TM": target_tm + 15,
+                "PRIMER_PAIR_MAX_DIFF_TM": 30,
+                "PRIMER_MIN_GC": 20,
+                "PRIMER_MAX_GC": 80,
+                "PRIMER_MAX_END_GC": 5,
+                "PRIMER_MAX_POLY_X": 8,
+            },
+        )
+    if not result.get("PRIMER_PAIR_NUM_RETURNED"):
+        why = "; ".join(
+            f"{side}: {result.get(key, 'no candidates')}"
+            for side, key in (
+                ("forward", "PRIMER_LEFT_EXPLAIN"),
+                ("reverse", "PRIMER_RIGHT_EXPLAIN"),
+            )
+        )
+        raise SequenceError(
+            "no usable primer pair here"
+            + (" (ambiguous bases at the ends of the region?)" if "N" in template else "")
+            + f". primer3 reports — {why}"
+        )
+
+    fwd_seq = result["PRIMER_LEFT_0_SEQUENCE"]
+    rev_seq = result["PRIMER_RIGHT_0_SEQUENCE"]
+    # PICK_ANYWAY can hand back a primer over an ambiguous (N) stretch; such a
+    # primer can't be ordered, so refuse rather than return it.
+    if "N" in fwd_seq or "N" in rev_seq:
+        raise SequenceError(
+            "no usable primer pair here: the ends of the region contain ambiguous "
+            "bases, which a primer can't be designed over"
+        )
     fwd = Primer(
-        name=unique_name(record, f"fwd {region_start % n + 1}"), sequence=fwd_seq,
-        bindStart=region_start % n, bindEnd=(region_start + len(fwd_seq)) % n,
-        strand=1, tm=round(fwd_tm, 2), gcContent=gc_content(fwd_seq),
+        name=unique_name(record, f"fwd {start + 1}"),
+        sequence=fwd_seq,
+        strand=1,
+        tm=round(result["PRIMER_LEFT_0_TM"], 2),
+        gcContent=round(result["PRIMER_LEFT_0_GC_PERCENT"], 1),
+        warnings=oligo_warnings(fwd_seq),
     )
     rev = Primer(
-        name=unique_name(record, f"rev {region_end % n or n}"), sequence=rev_seq,
-        bindStart=(region_end - len(rev_seq)) % n, bindEnd=region_end % n,
-        strand=-1, tm=round(best_tm, 2), gcContent=gc_content(rev_seq),
+        name=unique_name(record, f"rev {(start + length - 1) % n + 1}"),
+        sequence=rev_seq,
+        strand=-1,
+        tm=round(result["PRIMER_RIGHT_0_TM"], 2),
+        gcContent=round(result["PRIMER_RIGHT_0_GC_PERCENT"], 1),
+        warnings=oligo_warnings(rev_seq),
     )
-    return fwd, rev
+
+    warnings: list[str] = []
+    if relaxed:
+        warnings.append("no pair met the usual criteria here; this is the best primer3 could do")
+    if abs(fwd.tm - rev.tm) > PAIR_TM_DIFFERENCE_LIMIT:
+        warnings.append(f"the two primers' Tms differ by {abs(fwd.tm - rev.tm):.1f}C")
+    cross = max(result.get("PRIMER_PAIR_0_COMPL_ANY_TH", 0), result.get("PRIMER_PAIR_0_COMPL_END_TH", 0))
+    if cross > STRUCTURE_TM_LIMIT:
+        warnings.append(f"the two primers can form a dimer (Tm {cross:.1f}C)")
+
+    return PrimerPair(
+        forward=fwd,
+        reverse=rev,
+        product_size=int(result.get("PRIMER_PAIR_0_PRODUCT_SIZE", length)),
+        warnings=warnings,
+    )
 
 
 # --------------------------------------------------------------------------

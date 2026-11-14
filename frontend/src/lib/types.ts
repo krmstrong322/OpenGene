@@ -72,8 +72,14 @@ export interface Primer {
   strand: Strand;
   // How many places its annealing part matches (more than 1: not specific).
   bindingSites?: number;
+  // Melting temperature of the whole oligo.
   tm: number;
+  // Melting temperature of the part that anneals (lower for a 5′-tailed primer);
+  // null while the primer doesn't bind.
+  annealTm?: number | null;
   gcContent: number;
+  // What is wrong with the oligo itself (hairpin, dimer, GC/length, GC clamp).
+  warnings?: string[];
 }
 
 // A primer as listed under its sequence in the library.

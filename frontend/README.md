@@ -91,6 +91,14 @@ rows as they need (up to eight; a site that still can't be named keeps its
 mark and tooltip), and the ruler's numbers sit below it, so the two can't
 collide. The circular map names cut sites only up to 40 of them.
 
+**Designing a pair.** "Amplify exactly" (the product is the selection) and
+"amplify across" (the product contains it; primers may sit outside) both call
+primer3's own pair designer, which scores Tm, GC, 3′ stability, hairpins,
+self-dimers and cross-dimers. When nothing meets the usual limits the best
+available pair is returned with warnings. Each saved primer shows its own
+quality warnings and, for a 5′-tailed primer, the melting temperature of the
+part that anneals (`annealTm`) alongside the whole-oligo Tm.
+
 **Saved primers.** A primer is an oligo saved with a sequence: its name and
 bases are the user's, and where it binds is looked up by the engine after
 every edit (the whole oligo first, then its 3′ end, so a 5′ tail doesn't stop

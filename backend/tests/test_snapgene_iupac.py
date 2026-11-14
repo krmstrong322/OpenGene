@@ -205,16 +205,20 @@ def test_degenerate_primer_analysis_is_a_clear_error_not_a_crash(client):
     assert r.status_code == 422 and "ambiguous" in r.json()["detail"]
 
 
-def test_primer_design_on_an_ambiguous_site_is_a_clear_error(client):
+def test_primer_design_on_an_ambiguous_region_end_is_a_clear_error(client):
+    # The region starts inside a long N stretch, so a forward primer can't be
+    # placed there: the engine says so instead of returning an N-laden primer.
     seq = SEQ[:200] + "N" * 40 + SEQ[200:]
     rec = client.post("/records", json={"name": "t", "sequence": seq, "isCircular": True}).json()
     r = client.post(f"/records/{rec['id']}/design_primers", json={"region_start": 200, "region_end": 600})
     assert r.status_code == 422 and "ambiguous" in r.json()["detail"]
 
 
-def test_primer_growth_stops_before_an_ambiguous_base():
-    # A definite 18-base start, then an N: the primer stays clear of it.
-    seq = "GCGCATATGCGCATATGC" + "N" + SEQ
+def test_designed_primers_never_contain_an_ambiguous_base():
+    # An N sits inside the region; flank mode has clean sequence to design
+    # against on either side, and the primers it returns are all definite.
+    clean = ("GCTAACCAGTTCGATGCATTGACCGTAAGGCTATCGGATCCGATTACGGCATCGATCGGCTA" * 6)
+    seq = clean[:180] + "N" + clean[180:]
     rec = PlasmidRecord(name="t", sequence=seq, is_circular=False)
-    fwd, _ = P.design_primer_pair(rec, 0, 400)
-    assert "N" not in fwd.sequence and len(fwd.sequence) == 18
+    pair = P.design_primer_pair(rec, 120, 240, mode="flank")
+    assert "N" not in pair.forward.sequence and "N" not in pair.reverse.sequence

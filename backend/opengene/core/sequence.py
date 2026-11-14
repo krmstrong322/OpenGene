@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass
 from typing import Iterable, Literal
 
+import primer3
 from Bio.Seq import Seq
 
 from ..models import (
@@ -440,11 +441,24 @@ def bind_primer(record: PlasmidRecord, primer: Primer) -> Primer:
     found = locate_primer(record.sequence, record.is_circular, primer.sequence, primer.bind_start)
     if found is None:
         return primer.model_copy(
-            update={"bind_start": None, "bind_end": None, "binding_sites": 0}
+            update={"bind_start": None, "bind_end": None, "binding_sites": 0, "anneal_tm": None}
         )
     start, end, strand, sites = found
+    # Tm of the 3' part that actually anneals (the whole oligo when all of it
+    # does; shorter for a primer with a 5' tail).
+    n = len(record.sequence)
+    annealed = (end - start) % n if end != start else n
+    annealed = annealed or len(primer.sequence)
+    three_prime = primer.sequence[-annealed:]
+    anneal_tm = round(primer3.calc_tm(three_prime), 2) if set(three_prime) <= set("ACGT") else None
     return primer.model_copy(
-        update={"bind_start": start, "bind_end": end, "strand": strand, "binding_sites": sites}
+        update={
+            "bind_start": start,
+            "bind_end": end,
+            "strand": strand,
+            "binding_sites": sites,
+            "anneal_tm": anneal_tm,
+        }
     )
 
 

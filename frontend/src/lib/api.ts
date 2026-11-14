@@ -166,13 +166,26 @@ export const api = {
       body: JSON.stringify({ sequence, target_tm: targetTm }),
     }),
 
-  designPrimers: (id: string, regionStart: number, regionEnd: number, targetTm = 60) =>
-    req<{ forward: Primer; reverse: Primer; record: PlasmidRecord }>(`/records/${id}/design_primers`, {
+  designPrimers: (
+    id: string,
+    regionStart: number,
+    regionEnd: number,
+    mode: "exact" | "flank" = "exact",
+    targetTm = 60,
+  ) =>
+    req<{
+      forward: Primer;
+      reverse: Primer;
+      productSize: number;
+      warnings: string[];
+      record: PlasmidRecord;
+    }>(`/records/${id}/design_primers`, {
       method: "POST",
       body: JSON.stringify({
         region_start: regionStart,
         region_end: regionEnd,
         target_tm: targetTm,
+        mode,
       }),
     }),
 

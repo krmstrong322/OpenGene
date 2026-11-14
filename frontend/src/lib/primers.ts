@@ -20,7 +20,10 @@ export interface Binding {
 }
 
 export function primerBinding(
-  p: Pick<Primer, "bindStart" | "bindEnd" | "strand" | "sequence" | "bindingSites">,
+  p: Pick<
+    Primer,
+    "bindStart" | "bindEnd" | "strand" | "sequence" | "bindingSites" | "annealTm"
+  >,
   length: number,
 ): Binding {
   if (!isBound(p)) {
@@ -39,7 +42,10 @@ export function primerBinding(
   const sites = p.bindingSites ?? 1;
   const notes = [
     `Binds bases ${range} on the ${p.strand === 1 ? "top" : "bottom"} strand.`,
-    tail > 0 ? `${annealed} of its ${p.sequence.length} nt anneal; the 5′ ${tail} nt don’t match.` : "",
+    tail > 0
+      ? `${annealed} of its ${p.sequence.length} nt anneal; the 5′ ${tail} nt don’t match.` +
+        (p.annealTm != null ? ` The annealing part melts at ${p.annealTm.toFixed(1)} °C.` : "")
+      : "",
     sites > 1 ? `Its site occurs ${sites} times in this sequence.` : "",
   ].filter(Boolean);
   return {

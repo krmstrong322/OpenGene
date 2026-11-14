@@ -117,6 +117,9 @@ class PrimerDesignRequest(BaseModel):
     region_start: int
     region_end: int
     target_tm: float = 60.0
+    # "exact": the product is exactly the region (the primers sit at its ends).
+    # "flank": the product contains the region (primers may sit outside it).
+    mode: Literal["exact", "flank"] = "exact"
 
 
 class PrimerCreate(BaseModel):
@@ -171,12 +174,15 @@ def _record_response(record: PlasmidRecord) -> dict:
     return data
 
 
-def _log(record: PlasmidRecord, op: str, description: str) -> None:
+def _log(
+    record: PlasmidRecord, op: str, description: str, warnings: list[str] | None = None
+) -> None:
     """Add a line to the record's history for a change that isn't a sequence
     edit (those are logged by the engine), so the history lists every step
     that undo can take back."""
     record.history.append(
-        HistoryEvent(op=op, description=description, timestamp=time.time())
+        HistoryEvent(op=op, description=description, timestamp=time.time(),
+                     warnings=list(warnings or []))
     )
 
 
@@ -498,20 +504,29 @@ def analyze_primer(req: PrimerAnalyzeRequest) -> dict:
 def design_primers(record_id: str, req: PrimerDesignRequest) -> dict:
     with _edit_txn(record_id) as (record, pre):
         try:
-            fwd, rev = primers_mod.design_primer_pair(
-                record, req.region_start, req.region_end, req.target_tm
+            pair = primers_mod.design_primer_pair(
+                record, req.region_start, req.region_end, req.target_tm, req.mode
             )
         except seq_mod.SequenceError as e:
             raise HTTPException(status_code=422, detail=str(e))
         # Look the pair up like any saved primer, so their binding data (site
-        # count included) is filled in the same way.
-        fwd, rev = seq_mod.bind_primer(record, fwd), seq_mod.bind_primer(record, rev)
+        # count and annealing Tm included) is filled in the same way.
+        fwd = seq_mod.bind_primer(record, pair.forward)
+        rev = seq_mod.bind_primer(record, pair.reverse)
         record.primers.extend([fwd, rev])
-        _log(record, "primers", f"designed primers {fwd.name!r} and {rev.name!r}")
+        _log(
+            record,
+            "primers",
+            f"designed primers {fwd.name!r} and {rev.name!r} "
+            f"({pair.product_size} bp product)",
+            pair.warnings,
+        )
         store.commit(record, pre)
         return {
             "forward": fwd.model_dump(by_alias=True),
             "reverse": rev.model_dump(by_alias=True),
+            "productSize": pair.product_size,
+            "warnings": pair.warnings,
             "record": _record_response(record),
         }
 

@@ -38,11 +38,15 @@ describe("how a saved primer's binding is described", () => {
     expect(b.warn).toBe(true);
   });
 
-  it("explains a 5′ tail that doesn't anneal", () => {
-    const tailed = primer({ sequence: "GAATTCGGATCC" + "GTAAAACGACGGCCAGT" });
+  it("explains a 5′ tail that doesn't anneal, with the annealing Tm", () => {
+    const tailed = primer({
+      sequence: "GAATTCGGATCC" + "GTAAAACGACGGCCAGT",
+      annealTm: 54.7,
+    });
     const b = primerBinding(tailed, 2686);
     expect(b.warn).toBe(false);
     expect(b.detail).toContain("17 of its 29 nt anneal");
+    expect(b.detail).toContain("melts at 54.7 °C");
   });
 
   it("handles a site that wraps the origin", () => {

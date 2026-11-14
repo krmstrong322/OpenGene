@@ -98,3 +98,23 @@ test("the library lists each sequence's primers and opens straight to one", asyn
   await expect(page.locator("#tab-primers")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".tab-body li.selected")).toContainText("tree-R");
 });
+
+test("designing a pair saves two primers and reports the product size", async ({ page, request }) => {
+  const { id } = await openNewRecord(page, request, "design");
+  await page.locator("#tab-primers").click();
+
+  // Select the middle ~90 bp of the sequence to amplify.
+  await placeCursor(page, 15);
+  for (let i = 0; i < 90; i++) await page.keyboard.press("Shift+ArrowRight");
+  await page.locator("#tab-primers").click();
+  await page.getByRole("button", { name: "Amplify exactly" }).click();
+
+  // A forward and a reverse primer are saved, bound to the sequence.
+  await expect(page.locator(".tab-body .list li")).toHaveCount(2);
+  const record = await fetchRecord(request, id);
+  expect(record.primers).toHaveLength(2);
+  expect(record.history.at(-1)?.description).toContain("bp product");
+
+  // A toast reports the outcome (clean pair or, on a hard template, warnings).
+  await expect(page.locator(".toast")).toContainText("bp");
+});

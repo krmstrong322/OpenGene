@@ -12,7 +12,7 @@ free-form sequence string from outside the engine can mutate state.
 
 - **FastAPI** — REST API
 - **Biopython** — parsing, restriction catalog (REBASE/NEB), translation
-- **primer3-py** — Tm, hairpin/dimer analysis, primer design
+- **primer3-py** — Tm, hairpin/dimer analysis, and pair design (its own `design_primers`)
 - **Pydantic v2** — validated data models (`PlasmidRecord`, `Feature`, `Primer`)
 
 ## Install & run
@@ -38,6 +38,7 @@ OpenAPI docs are served at `http://localhost:8000/docs`.
 | **File I/O** | Import GenBank, FASTA, EMBL, SnapGene `.dna`; export GenBank/FASTA/EMBL. `.dna` is import-only (no writer in Biopython — export to GenBank to round-trip). |
 | **Editing** | Insert, delete, mutate, replace-range, reverse-complement. Feature coordinates shift correctly; circular origin wrap-around is handled. |
 | **ORFs** | Detection across all 6 reading frames, including ORFs that cross the origin of circular records. |
+| **Primer design** | `POST /records/{id}/design_primers` hands the region to primer3's pair designer (`mode` `exact`: product = region; `flank`: product contains it). It scores Tm vs target, GC, 3′ stability, hairpins, self-dimers and cross-dimers; if nothing passes it returns the best pair with warnings. The pair is saved like any primer, and the annealing Tm of a tailed primer is recorded. |
 | **Saved primers** | Oligos kept with a record (`POST/PATCH/DELETE /records/{id}/primers`, import from FASTA or a name/sequence table, export as CSV or FASTA — per record or for the whole library). Binding is derived: after every edit each primer is looked up again by its 3′ end on both strands and across the origin, so it follows its site, and is kept as "not binding" if the site is gone. |
 | **Restriction** | Cut-site mapping, digest fragment sizes, unique-cutter detection using every commercially available enzyme (NEB included; not yet filterable to NEB only). |
 | **Primers** | Tm / GC / hairpin / dimer analysis and PCR primer-pair design around a target region. |

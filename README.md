@@ -109,7 +109,14 @@ makes them handy test files to import.
   supplier, ready-made sets: unique cutters, unique + 2-cutters, 6+ bp, blunt), digest
   fragment sizes, the overhang (5′/3′/blunt and its bases) at each cut site, and a flag
   where a site overlaps a Dam/Dcm/CpG methylation motif
-- **Primers** — Tm / GC / hairpin / dimer analysis and PCR primer-pair design (primer3)
+- **Primers** — Tm / GC / hairpin / dimer analysis, and PCR primer-pair design that hands
+  the whole job to primer3 (scores every candidate on Tm against target, GC, 3′ stability,
+  hairpins and self-dimers, and each pair on Tm match and cross-dimers): "amplify exactly"
+  anchors the primers at the region's ends, "amplify across" searches outside it for a
+  better pair; a primer that can't meet the usual criteria is still returned, flagged.
+  Primers are saved with their sequence and listed under it in the library; their binding
+  sites are re-located after every edit (a primer with a 5′ tail binds by its 3′ end), and
+  they can be imported and exported as CSV or FASTA
 - **Auto-annotation** — pure-Python seed-and-extend matching against a bundled
   feature library (promoters, terminators, tags, resistance genes, fluorescent
   proteins, and replication origins — ColE1/pUC, f1, SV40, p15A) on both strands

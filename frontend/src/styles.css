@@ -995,6 +995,95 @@ button.tag:disabled {
   text-overflow: ellipsis;
   max-width: 460px;
 }
+/* The library as a tree: a twisty before each sequence, primers indented under it */
+.table .tree-cell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.table .tree-cell.child {
+  padding-left: 30px;
+  gap: 12px;
+}
+.table .twisty {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.table button.twisty:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.table button.twisty:disabled {
+  cursor: default;
+}
+.table tr.child td {
+  height: 30px;
+  background: var(--surface-2);
+  font-size: 12.5px;
+}
+.table tr.child:hover td {
+  background: var(--hover);
+}
+.table tr.child .name-cell {
+  flex: none;
+  font-weight: 500;
+  max-width: 220px;
+}
+.table tr.child .primer-seq {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+  color: var(--muted);
+}
+.warn-text {
+  color: var(--warn-ink);
+}
+
+/* A primer's direction: a small arrow, pointing left for the bottom strand */
+.primer-arrow {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 7px solid var(--muted);
+}
+.primer-arrow.rev {
+  border-left: none;
+  border-right: 7px solid var(--muted);
+}
+.import-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.section-title .aside .btn {
+  font-weight: 500;
+}
+.section-title .aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .table .name-text {
   overflow: hidden;
   text-overflow: ellipsis;

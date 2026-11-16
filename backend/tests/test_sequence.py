@@ -187,46 +187,97 @@ def test_frame_shift_detection_via_length_mod3():
 from opengene.models import Primer
 
 
-def _rec_with_primers(seq="ACGT" * 20, circular=True):
-    rec = make_record(seq, circular=circular)
+# The template: 40 bp of filler, then two distinct 20-nt primer sites.
+UP = "GATTACAGGCTTAACCGGTA"
+DOWN = "CCATGGTTCAAGTCGATCCA"
+TEMPLATE = "ACGT" * 5 + UP + "TTTT" * 5 + DOWN + "ACGT" * 5  # 100 bp
+
+
+def _rec_with_primers(circular=True):
+    rec = make_record(TEMPLATE, circular=circular)
     rec.primers = [
-        Primer(name="up", sequence="ACGT", bindStart=4, bindEnd=12, strand=1, tm=60, gcContent=50),
-        Primer(name="down", sequence="ACGT", bindStart=40, bindEnd=52, strand=1, tm=60, gcContent=50),
+        Primer(name="up", sequence=UP, tm=60, gcContent=50),
+        Primer(name="down", sequence=S.reverse_complement(DOWN), tm=60, gcContent=50),
     ]
+    S.rebind_primers(rec)
     return rec
 
 
-def test_insert_keeps_upstream_primer_drops_downstream():
+def _site(rec, name):
+    p = next(p for p in rec.primers if p.name == name)
+    return (p.bind_start, p.bind_end, p.strand)
+
+
+def test_primers_find_their_sites_on_either_strand():
     rec = _rec_with_primers()
-    S.insert(rec, 20, "AAAA")  # between the two primers
-    names = {p.name for p in rec.primers}
-    assert names == {"up"}  # upstream kept (coords unchanged), downstream dropped
-    assert rec.primers[0].bind_start == 4 and rec.primers[0].bind_end == 12
+    assert _site(rec, "up") == (20, 40, 1)
+    assert _site(rec, "down") == (60, 80, -1)
 
 
-def test_delete_covering_primer_drops_it():
+def test_insert_moves_downstream_primer_and_keeps_upstream():
     rec = _rec_with_primers()
-    S.delete(rec, 38, 56)  # covers the "down" primer's binding site
-    assert {p.name for p in rec.primers} == {"up"}
+    S.insert(rec, 50, "AAAA")  # between the two primers
+    assert _site(rec, "up") == (20, 40, 1)
+    assert _site(rec, "down") == (64, 84, -1)
+    assert not rec.history[-1].warnings
 
 
-def test_mutate_keeps_all_primers():
+def test_deleting_a_binding_site_keeps_the_primer_unbound():
     rec = _rec_with_primers()
-    S.mutate(rec, 44, "T")  # single base, no coordinate change
+    S.delete(rec, 55, 85)  # covers the "down" primer's binding site
     assert {p.name for p in rec.primers} == {"up", "down"}
+    assert _site(rec, "down") == (None, None, -1)
+    assert "down no longer binds" in rec.history[-1].warnings[-1]
+    # Putting the site back makes it bind again.
+    S.insert(rec, 55, TEMPLATE[55:85])
+    assert _site(rec, "down") == (60, 80, -1)
 
 
-def test_reverse_complement_drops_primers_with_warning():
+def test_mutation_near_the_5_prime_end_leaves_the_3_prime_end_annealing():
+    rec = _rec_with_primers()
+    S.mutate(rec, 21, "C" if TEMPLATE[21] != "C" else "A")  # 2nd base of "up"
+    start, end, strand = _site(rec, "up")
+    assert (end, strand) == (40, 1) and 22 <= start <= 25
+
+
+def test_mutation_at_the_3_prime_end_stops_the_primer_binding():
+    rec = _rec_with_primers()
+    S.mutate(rec, 39, "C" if TEMPLATE[39] != "C" else "A")  # last base of "up"
+    assert _site(rec, "up") == (None, None, 1)
+
+
+def test_reverse_complement_keeps_primers_on_the_other_strand():
     rec = _rec_with_primers()
     S.reverse_complement_record(rec)
-    assert rec.primers == []
-    assert any("dropped primers" in w for w in rec.history[-1].warnings)
+    assert _site(rec, "up") == (60, 80, -1)
+    assert _site(rec, "down") == (20, 40, 1)
 
 
-def test_wrap_delete_drops_all_primers():
+def test_primer_with_a_5_prime_tail_binds_by_its_3_prime_part():
     rec = _rec_with_primers()
-    S.delete(rec, 70, 2)  # wraps the origin
-    assert rec.primers == []
+    found = S.locate_primer(rec.sequence, True, "GAATTCGGATCC" + UP)
+    assert found == (20, 40, 1, 1)
+
+
+def test_primer_across_the_origin_binds_only_on_a_circle():
+    oligo = TEMPLATE[-10:] + TEMPLATE[:10]
+    assert S.locate_primer(TEMPLATE + "G", True, TEMPLATE[-9:] + "G" + TEMPLATE[:10])[:3] == (91, 10, 1)
+    assert S.locate_primer(TEMPLATE + "G", False, TEMPLATE[-9:] + "G" + TEMPLATE[:10]) is None
+    assert oligo  # (kept for readability of the case above)
+
+
+def test_a_repeated_site_is_counted_and_the_previous_one_is_kept():
+    seq = UP + "TTTTTTTTTT" + UP + "CCCCCCCCCC"
+    assert S.locate_primer(seq, False, UP) == (0, 20, 1, 2)
+    assert S.locate_primer(seq, False, UP, near=30) == (30, 50, 1, 2)
+
+
+
+def test_wrap_delete_renumbers_primers_that_survive_it():
+    rec = _rec_with_primers()
+    S.delete(rec, 70, 2)  # wraps the origin: cuts into "down", renumbers the rest
+    assert _site(rec, "up") == (18, 38, 1)
+    assert _site(rec, "down") == (None, None, -1)
 
 
 def test_slice_circular_whole_sequence_and_wraps():

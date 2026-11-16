@@ -128,14 +128,41 @@ class Feature(BaseModel):
 
 
 class Primer(BaseModel):
+    """A saved oligo. It belongs to a record and stays with it through edits.
+
+    The oligo itself (name, sequence, Tm, GC) is what the user ordered and
+    never changes on its own. Where it binds is *derived*: after every edit
+    the engine looks the oligo up in the record again (see
+    ``core.sequence.rebind_primers``), so ``bind_start`` / ``bind_end`` follow
+    the sequence, and are ``None`` when the oligo no longer binds anywhere.
+    """
+
     id: str = Field(default_factory=_new_id)
     name: str
     sequence: str
-    bind_start: int = Field(alias="bindStart")
-    bind_end: int = Field(alias="bindEnd")
+    # The bases the primer anneals to, [bind_start, bind_end) on the top
+    # strand (may wrap the origin). A primer with a 5' tail anneals with its
+    # 3' part only, so this span can be shorter than the oligo.
+    bind_start: Optional[int] = Field(default=None, alias="bindStart")
+    bind_end: Optional[int] = Field(default=None, alias="bindEnd")
     strand: Strand = 1
+    # How many places in the record the annealing part matches (1 is what you
+    # want; more means the primer is not specific).
+    binding_sites: int = Field(default=1, alias="bindingSites")
+    # Melting temperature of the whole oligo.
     tm: float
     gc_content: float = Field(alias="gcContent")
+    # Melting temperature of the part that anneals to this record — lower than
+    # ``tm`` for a primer with a 5' tail, and the number that matters for the
+    # first PCR cycles. ``None`` while the primer doesn't bind.
+    anneal_tm: Optional[float] = Field(default=None, alias="annealTm")
+    # What is wrong with the oligo itself, if anything (strong hairpin or
+    # self-dimer, GC content or length out of range, GC-heavy 3' end).
+    warnings: list[str] = Field(default_factory=list)
+
+    @property
+    def is_bound(self) -> bool:
+        return self.bind_start is not None and self.bind_end is not None
 
     model_config = {"populate_by_name": True}
 
@@ -212,6 +239,19 @@ class PlasmidRecord(BaseModel):
             "length": self.length,
             "isCircular": self.is_circular,
             "featureCount": len(self.features),
+            # Enough of each primer to list it under its sequence in the library.
+            "primers": [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "sequence": p.sequence,
+                    "tm": p.tm,
+                    "bindStart": p.bind_start,
+                    "bindEnd": p.bind_end,
+                    "strand": p.strand,
+                }
+                for p in self.primers
+            ],
             "hasTrace": self.trace is not None,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,

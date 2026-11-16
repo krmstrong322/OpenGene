@@ -59,16 +59,34 @@ export interface Feature {
   segments?: Segment[];
 }
 
+// A saved oligo. It belongs to a record; where it binds is looked up by the
+// engine after every edit, and is null when it no longer binds anywhere.
 export interface Primer {
   id: string;
   name: string;
   sequence: string;
-  bindStart: number;
-  bindEnd: number;
+  // The bases it anneals to, [bindStart, bindEnd) on the top strand. Shorter
+  // than the oligo when the primer has a 5′ tail.
+  bindStart: number | null;
+  bindEnd: number | null;
   strand: Strand;
+  // How many places its annealing part matches (more than 1: not specific).
+  bindingSites?: number;
+  // Melting temperature of the whole oligo.
   tm: number;
+  // Melting temperature of the part that anneals (lower for a 5′-tailed primer);
+  // null while the primer doesn't bind.
+  annealTm?: number | null;
   gcContent: number;
+  // What is wrong with the oligo itself (hairpin, dimer, GC/length, GC clamp).
+  warnings?: string[];
 }
+
+// A primer as listed under its sequence in the library.
+export type PrimerSummary = Pick<
+  Primer,
+  "id" | "name" | "sequence" | "tm" | "bindStart" | "bindEnd" | "strand"
+>;
 
 export interface HistoryEvent {
   id: string;
@@ -104,6 +122,7 @@ export interface RecordSummary {
   length: number;
   isCircular: boolean;
   featureCount: number;
+  primers: PrimerSummary[];
   hasTrace?: boolean;
   createdAt: number; // unix seconds
   updatedAt: number; // unix seconds

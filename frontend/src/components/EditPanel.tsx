@@ -27,7 +27,8 @@ export function EditPanel(props: Props) {
   const [tab, setTab] = useState<Tab>("edit");
   // A command opens the tab that handles it; that tab then carries it out.
   useEffect(() => {
-    if (props.command) setTab(props.command.kind === "design-primers" ? "primers" : "features");
+    const kind = props.command?.kind;
+    if (kind) setTab(kind === "design-primers" || kind === "show-primer" ? "primers" : "features");
   }, [props.command]);
 
   return (
@@ -83,7 +84,9 @@ export function EditPanel(props: Props) {
             record={record}
             selection={selection}
             onError={onError}
+            onInfo={props.onInfo}
             onRecordChange={onRecordChange}
+            onSelectRange={props.onSelectRange}
             command={props.command}
             onCommandDone={props.onCommandDone}
           />

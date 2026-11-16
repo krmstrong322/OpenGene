@@ -30,6 +30,7 @@ export async function fetchRecord(request: APIRequestContext, id: string) {
     length: number;
     isCircular: boolean;
     features: { name: string; start: number; end: number }[];
+    primers: { name: string; sequence: string; bindStart: number | null }[];
     history: { description: string }[];
   };
 }

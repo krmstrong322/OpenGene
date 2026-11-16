@@ -59,11 +59,13 @@ def test_design_primer_pair():
     # A 500 bp random-ish template.
     body = ("ATGCGTACGATCGTAGCTAGCTAGCGATCGATCGTAGCTA" * 13)[:500]
     rec = make_record(body, circular=True)
-    fwd, rev = P.design_primer_pair(rec, 50, 300, target_tm=60)
+    pair = P.design_primer_pair(rec, 50, 300, target_tm=60)
+    fwd, rev = pair.forward, pair.reverse
     assert fwd.strand == 1 and rev.strand == -1
     assert 18 <= len(fwd.sequence) <= 30
     assert 18 <= len(rev.sequence) <= 30
     assert fwd.tm > 0 and rev.tm > 0
+    assert pair.product_size == 250  # exact mode: the product is the region
 
 
 # --- enzyme catalog, overhangs, methylation --------------------------------

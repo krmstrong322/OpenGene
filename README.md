@@ -1,5 +1,7 @@
 # OpenGene
 
+[![Latest release](https://img.shields.io/github/v/release/krmstrong322/OpenGene)](https://github.com/krmstrong322/OpenGene/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **A free, open-source plasmid viewer and editor.** Open and edit GenBank, FASTA,
 EMBL and SnapGene files, view synchronized circular and linear maps, design and
 save primers, plan restriction digests, and read Sanger traces — all on your own
